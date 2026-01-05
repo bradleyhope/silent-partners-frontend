@@ -101,7 +101,7 @@ export function UndoHistoryPanel() {
   }
 
   return (
-    <div className="absolute top-4 right-4 z-10">
+    <div className="absolute top-2 sm:top-4 right-2 sm:right-4 z-10">
       <Button
         variant="outline"
         size="sm"
@@ -115,7 +115,7 @@ export function UndoHistoryPanel() {
       </Button>
 
       {isOpen && (
-        <div className="absolute top-10 right-0 w-64 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
+        <div className="absolute top-10 right-0 w-56 sm:w-64 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
           <div className="px-3 py-2 border-b border-border flex items-center justify-between">
             <span className="text-xs font-medium">Recent Actions</span>
             <button onClick={() => setIsOpen(false)} className="text-muted-foreground hover:text-foreground">

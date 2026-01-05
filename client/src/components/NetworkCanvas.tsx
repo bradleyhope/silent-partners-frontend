@@ -302,18 +302,18 @@ export default function NetworkCanvas() {
         className="flex-1 flex items-center justify-center canvas-container transition-colors duration-300"
         style={{ backgroundColor: themeConfig.background }}
       >
-        <div className="text-center max-w-md px-8">
-          <h2 className="font-display text-2xl mb-3" style={{ color: themeConfig.textColor }}>
+        <div className="text-center max-w-md px-4 sm:px-8">
+          <h2 className="font-display text-xl sm:text-2xl mb-2 sm:mb-3" style={{ color: themeConfig.textColor }}>
             Begin Your Investigation
           </h2>
-          <p className="text-muted-foreground text-sm leading-relaxed mb-6">
-            Paste an article, upload a PDF, or start adding entities manually 
-            to map the hidden connections.
+          <p className="text-muted-foreground text-xs sm:text-sm leading-relaxed mb-4 sm:mb-6">
+            <span className="hidden sm:inline">Paste an article, upload a PDF, or start adding entities manually to map the hidden connections.</span>
+            <span className="sm:hidden">Tap the menu to load an example network or add entities manually.</span>
           </p>
-          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground/60 font-mono">
-            <span className="w-3 h-3 rounded-full bg-[#6B8E9F]"></span> Person
-            <span className="w-3 h-3 rounded-full bg-[#7BA05B] ml-2"></span> Organization
-            <span className="w-3 h-3 rounded-full bg-[#C9A227] ml-2"></span> Financial
+          <div className="inline-flex items-center gap-2 text-[10px] sm:text-xs text-muted-foreground/60 font-mono flex-wrap justify-center">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#6B8E9F]"></span> Person</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#7BA05B]"></span> Organization</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-[#C9A227]"></span> Financial</span>
           </div>
         </div>
       </div>
@@ -334,7 +334,7 @@ export default function NetworkCanvas() {
       />
       
       {/* Zoom Controls */}
-      <div className="absolute bottom-4 left-4 flex flex-col gap-1">
+      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 flex flex-col gap-1">
         <Button
           variant="outline"
           size="icon"
@@ -424,9 +424,9 @@ export default function NetworkCanvas() {
         </Button>
       </div>
 
-      {/* Minimap */}
-      <div className="absolute bottom-4 right-4 w-32 h-24 bg-card/80 border border-border rounded shadow-sm opacity-50">
-        <div className="text-[9px] text-muted-foreground p-1 font-mono">
+      {/* Minimap - hidden on mobile */}
+      <div className="absolute bottom-3 sm:bottom-4 right-3 sm:right-4 w-24 sm:w-32 h-auto sm:h-24 bg-card/80 border border-border rounded shadow-sm opacity-50 hidden sm:block">
+        <div className="text-[8px] sm:text-[9px] text-muted-foreground p-1 font-mono">
           {network.entities.length} entities · {network.relationships.length} connections
         </div>
       </div>

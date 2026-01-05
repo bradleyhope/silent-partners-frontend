@@ -63,7 +63,19 @@ export default function DetailPanel() {
   }
 
   return (
-    <aside className="w-80 bg-card border-l border-border flex flex-col h-full overflow-hidden animate-in slide-in-from-right-5 duration-200">
+    <>
+      {/* Mobile overlay backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/50 z-40 md:hidden"
+        onClick={handleClose}
+      />
+      
+      <aside className="
+        fixed md:relative inset-y-0 right-0 z-50
+        w-full sm:w-80 max-w-sm
+        bg-card border-l border-border flex flex-col h-full overflow-hidden 
+        animate-in slide-in-from-right-5 duration-200
+      ">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <span className="section-header mb-0 border-0 pb-0">
@@ -227,5 +239,6 @@ export default function DetailPanel() {
         </div>
       )}
     </aside>
+    </>
   );
 }

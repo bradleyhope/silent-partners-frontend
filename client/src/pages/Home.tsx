@@ -11,6 +11,7 @@
  */
 
 import { NetworkProvider } from '@/contexts/NetworkContext';
+import { MobileSidebarProvider } from '@/contexts/MobileSidebarContext';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import NetworkCanvas from '@/components/NetworkCanvas';
@@ -28,7 +29,7 @@ function AppContent() {
       <Header />
       <div className="flex-1 flex overflow-hidden relative">
         <Sidebar />
-        <div className="flex-1 relative flex flex-col">
+        <div className="flex-1 relative flex flex-col min-w-0">
           <NetworkCanvas />
           <UndoHistoryPanel />
         </div>
@@ -41,7 +42,9 @@ function AppContent() {
 export default function Home() {
   return (
     <NetworkProvider>
-      <AppContent />
+      <MobileSidebarProvider>
+        <AppContent />
+      </MobileSidebarProvider>
     </NetworkProvider>
   );
 }

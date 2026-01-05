@@ -5,7 +5,7 @@
  * Design: Archival Investigator with gold accents
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ import api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCanvasTheme, CanvasTheme } from '@/contexts/CanvasThemeContext';
 import { generateId, Entity, Relationship } from '@/lib/store';
+import { useMobileSidebar } from '@/contexts/MobileSidebarContext';
 
 // Example networks
 const EXAMPLE_NETWORKS = [
@@ -33,7 +34,17 @@ export default function Sidebar() {
   const { network, dispatch, addEntitiesAndRelationships, clearNetwork, selectEntity } = useNetwork();
   const { isAuthenticated } = useAuth();
   const { theme, setTheme, showAllLabels, setShowAllLabels } = useCanvasTheme();
+  const { isOpen: mobileOpen, close: closeMobile } = useMobileSidebar();
   const [networkOpen, setNetworkOpen] = useState(true);
+
+  // Close mobile sidebar when selecting an entity or loading a network
+  useEffect(() => {
+    if (network.entities.length > 0 && mobileOpen) {
+      // Small delay to allow the action to complete
+      const timer = setTimeout(() => closeMobile(), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [network.entities.length]);
   const [aiOpen, setAiOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -622,7 +633,21 @@ export default function Sidebar() {
   }, [relSource, relTarget, relType, relLabel, network.entities, network.relationships, dispatch]);
 
   return (
-    <aside className="w-72 bg-sidebar border-r border-sidebar-border flex flex-col h-full">
+    <>
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={closeMobile}
+        />
+      )}
+      
+      <aside className={`
+        fixed md:relative inset-y-0 left-0 z-50
+        w-72 bg-sidebar border-r border-sidebar-border flex flex-col h-full
+        transform transition-transform duration-300 ease-in-out
+        ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
       {/* Scrollable content area */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
       {/* Network Info Section */}
@@ -1043,5 +1068,6 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }
