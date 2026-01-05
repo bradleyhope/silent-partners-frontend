@@ -90,11 +90,15 @@ export default function NetworkCanvas() {
 
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
+      .touchable(() => true) // Enable touch events
       .on('zoom', (event) => {
         g.attr('transform', event.transform);
       });
 
-    svg.call(zoom);
+    // Apply zoom behavior with touch support
+    svg.call(zoom)
+      .on('touchstart.zoom', null) // Remove default touchstart to allow custom handling
+      .call(zoom); // Re-apply to ensure touch works
     zoomRef.current = zoom;
 
     const nodes: SimulationNode[] = network.entities.map((e) => ({
@@ -334,6 +338,7 @@ export default function NetworkCanvas() {
         width={dimensions.width}
         height={dimensions.height}
         className="absolute inset-0"
+        style={{ touchAction: 'none' }} // Enable touch gestures for pinch-to-zoom
       />
       
       {/* Zoom Controls */}
