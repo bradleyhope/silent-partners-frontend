@@ -130,7 +130,7 @@ export default function Sidebar() {
     }
   }, [aiInput, aiMode, addEntitiesAndRelationships, clearNetwork]);
 
-  // Load example network
+  // Load example network from pre-built data
   const handleLoadExample = useCallback(async (exampleId: string) => {
     const example = EXAMPLE_NETWORKS.find((e) => e.id === exampleId);
     if (!example) return;
@@ -139,49 +139,79 @@ export default function Sidebar() {
     clearNetwork();
     
     try {
-      toast.info(`Loading ${example.name}...`, { duration: 15000 });
-      const result = await api.discover(example.query, 'gpt-5', 5);
-
-      // Create a mapping from API entity IDs to our generated IDs
-      const apiIdToOurId = new Map<string, string>();
+      toast.info(`Loading ${example.name}...`);
       
-      const entities: Entity[] = result.entities.map((e) => {
-        const ourId = generateId();
-        if (e.id) {
-          apiIdToOurId.set(e.id, ourId);
-        }
-        apiIdToOurId.set(e.name.toLowerCase(), ourId);
+      // Load pre-built data from initial_data.js
+      // The file is loaded as a script and sets window.silentPartners.initialData
+      const initialData = (window as unknown as { silentPartners?: { initialData?: Record<string, { title: string; description: string; nodes: Array<{ id: string; name: string; type: string; importance?: number; description?: string }>; links: Array<{ source: string; target: string; type: string; label?: string }> }> } }).silentPartners?.initialData;
+      
+      let networkData: { title: string; description: string; nodes: Array<{ id: string; name: string; type: string; importance?: number; description?: string }>; links: Array<{ source: string; target: string; type: string; label?: string }> } | null = null;
+      
+      if (exampleId === '1mdb' && initialData?.oneMDB) {
+        networkData = initialData.oneMDB;
+      } else if (exampleId === 'bcci' && initialData?.bcci) {
+        networkData = initialData.bcci;
+      } else if (exampleId === 'epstein' && initialData?.epstein) {
+        networkData = initialData.epstein;
+      }
+      
+      if (!networkData) {
+        // Fallback to API if pre-built data not available
+        toast.info('Pre-built data not found, fetching from API...');
+        const result = await api.discover(example.query, 'gpt-5', 5);
         
-        return {
-          id: ourId,
-          name: e.name,
-          type: (e.type as Entity['type']) || 'unknown',
-          description: e.description,
-          importance: e.importance || 5,
-        };
-      });
-
-      const relationships: Relationship[] = result.relationships.map((r) => {
-        const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase()) || r.source;
-        const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase()) || r.target;
+        const apiIdToOurId = new Map<string, string>();
+        const entities: Entity[] = result.entities.map((e) => {
+          const ourId = generateId();
+          if (e.id) apiIdToOurId.set(e.id, ourId);
+          apiIdToOurId.set(e.name.toLowerCase(), ourId);
+          return {
+            id: ourId,
+            name: e.name,
+            type: (e.type as Entity['type']) || 'unknown',
+            description: e.description,
+            importance: e.importance || 5,
+          };
+        });
+        const relationships: Relationship[] = result.relationships.map((r) => {
+          const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase()) || r.source;
+          const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase()) || r.target;
+          return {
+            id: generateId(),
+            source: sourceId,
+            target: targetId,
+            type: r.type,
+            label: r.label || r.type,
+          };
+        }).filter((r) => entities.some((e) => e.id === r.source) && entities.some((e) => e.id === r.target));
         
-        return {
-          id: generateId(),
-          source: sourceId,
-          target: targetId,
-          type: r.type,
-          label: r.label || r.type,
-        };
-      }).filter((r) => {
-        const sourceExists = entities.some((e) => e.id === r.source);
-        const targetExists = entities.some((e) => e.id === r.target);
-        return sourceExists && targetExists;
-      });
-
-      dispatch({ type: 'UPDATE_NETWORK', payload: { title: example.name } });
+        dispatch({ type: 'UPDATE_NETWORK', payload: { title: example.name } });
+        addEntitiesAndRelationships(entities, relationships);
+        toast.success(`Loaded ${example.name}`);
+        return;
+      }
+      
+      // Convert pre-built data format to our format
+      const entities: Entity[] = networkData.nodes.map((n) => ({
+        id: n.id,
+        name: n.name,
+        type: (n.type as Entity['type']) || 'unknown',
+        description: n.description,
+        importance: n.importance ? Math.round(n.importance * 10) : 5,
+      }));
+      
+      const relationships: Relationship[] = networkData.links.map((e, i) => ({
+        id: `rel_${i}`,
+        source: e.source,
+        target: e.target,
+        type: e.type,
+        label: e.label || e.type,
+      }));
+      
+      dispatch({ type: 'UPDATE_NETWORK', payload: { title: networkData.title, description: networkData.description } });
       addEntitiesAndRelationships(entities, relationships);
       
-      toast.success(`Loaded ${example.name}`);
+      toast.success(`Loaded ${example.name} (${entities.length} entities, ${relationships.length} connections)`);
     } catch (error) {
       console.error('Failed to load example:', error);
       toast.error('Failed to load example network');

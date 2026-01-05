@@ -48,11 +48,13 @@ export default function NetworkCanvas() {
   }, []);
 
   // Generate Lombardi-style curved path
+  // Use deterministic sweep based on node IDs to prevent flashing
   const generateCurvedPath = useCallback((source: SimulationNode, target: SimulationNode): string => {
     const dx = target.x - source.x;
     const dy = target.y - source.y;
     const dr = Math.sqrt(dx * dx + dy * dy) * 0.8;
-    const sweep = Math.random() > 0.5 ? 1 : 0;
+    // Deterministic sweep direction based on comparing source and target IDs
+    const sweep = source.id < target.id ? 1 : 0;
     return `M${source.x},${source.y}A${dr},${dr} 0 0,${sweep} ${target.x},${target.y}`;
   }, []);
 
