@@ -39,7 +39,7 @@ export default function NetworkCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { network, selectedEntityId, selectEntity, updateEntity, dispatch } = useNetwork();
-  const { config: themeConfig, showAllLabels } = useCanvasTheme();
+  const { theme, config: themeConfig, showAllLabels } = useCanvasTheme();
   
   // Add entity modal state
   const [showAddEntity, setShowAddEntity] = useState(false);
@@ -295,11 +295,14 @@ export default function NetworkCanvas() {
     };
   }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath, themeConfig, showAllLabels]);
 
+  // Only show dot pattern for default theme, not for dark or lombardi
+  const showDotPattern = theme === 'default';
+
   if (network.entities.length === 0) {
     return (
       <div 
         ref={containerRef}
-        className="flex-1 flex items-center justify-center canvas-container transition-colors duration-300"
+        className={`flex-1 flex items-center justify-center transition-colors duration-300 ${showDotPattern ? 'canvas-container' : ''}`}
         style={{ backgroundColor: themeConfig.background }}
       >
         <div className="text-center max-w-md px-4 sm:px-8">
@@ -323,7 +326,7 @@ export default function NetworkCanvas() {
   return (
     <div 
       ref={containerRef} 
-      className="flex-1 canvas-container relative overflow-hidden transition-colors duration-300"
+      className={`flex-1 relative overflow-hidden transition-colors duration-300 ${showDotPattern ? 'canvas-container' : ''}`}
       style={{ backgroundColor: themeConfig.background }}
     >
       <svg
