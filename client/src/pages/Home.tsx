@@ -15,6 +15,7 @@ import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import NetworkCanvas from '@/components/NetworkCanvas';
 import DetailPanel from '@/components/DetailPanel';
+import { UndoHistoryPanel } from '@/components/UndoHistoryPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 // Wrapper component that uses the keyboard shortcuts hook
@@ -25,9 +26,12 @@ function AppContent() {
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <Header />
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         <Sidebar />
-        <NetworkCanvas />
+        <div className="flex-1 relative flex flex-col">
+          <NetworkCanvas />
+          <UndoHistoryPanel />
+        </div>
         <DetailPanel />
       </div>
     </div>

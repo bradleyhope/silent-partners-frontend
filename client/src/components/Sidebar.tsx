@@ -15,7 +15,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText } from 'lucide-react';
+import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -30,12 +30,15 @@ const EXAMPLE_NETWORKS = [
 ];
 
 export default function Sidebar() {
-  const { network, dispatch, addEntitiesAndRelationships, clearNetwork } = useNetwork();
+  const { network, dispatch, addEntitiesAndRelationships, clearNetwork, selectEntity } = useNetwork();
   const { isAuthenticated } = useAuth();
   const { theme, setTheme, showAllLabels, setShowAllLabels } = useCanvasTheme();
   const [networkOpen, setNetworkOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Entity[]>([]);
   
   // AI input state
   const [aiInput, setAiInput] = useState('');
@@ -427,6 +430,22 @@ export default function Sidebar() {
       setIsSharing(false);
     }
   }, [network, isAuthenticated]);
+
+  // Handle search
+  const handleSearch = useCallback((query: string) => {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    const lowerQuery = query.toLowerCase();
+    const results = network.entities.filter(e => 
+      e.name.toLowerCase().includes(lowerQuery) ||
+      e.type.toLowerCase().includes(lowerQuery) ||
+      (e.description && e.description.toLowerCase().includes(lowerQuery))
+    );
+    setSearchResults(results);
+  }, [network.entities]);
 
   // Handle PDF upload
   const handlePdfUpload = useCallback(async (file: File) => {
@@ -895,6 +914,62 @@ export default function Sidebar() {
                 <Link className="w-3 h-3 mr-1" /> Add Relationship
               </Button>
             </div>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+
+      <div className="border-t border-sidebar-border" />
+
+      {/* Search Section */}
+      <Collapsible open={searchOpen} onOpenChange={setSearchOpen}>
+        <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-sidebar-accent/50 transition-colors">
+          <span className="section-header mb-0 border-0 pb-0">Search</span>
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${searchOpen ? '' : '-rotate-90'}`} />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-4 pb-4 space-y-3">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search entities..."
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="pl-8 h-8 text-xs"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+          
+          {searchResults.length > 0 && (
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {searchResults.map((entity) => (
+                <button
+                  key={entity.id}
+                  onClick={() => {
+                    selectEntity(entity.id);
+                    setSearchOpen(false);
+                  }}
+                  className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-sidebar-accent/50 flex items-center gap-2"
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entity.type === 'person' ? '#4A90A4' : entity.type === 'corporation' ? '#7CB342' : entity.type === 'organization' ? '#7BA05B' : entity.type === 'financial' ? '#C9A227' : '#8B7355' }} />
+                  <span className="truncate">{entity.name}</span>
+                  <span className="text-muted-foreground text-[10px] ml-auto">{entity.type}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          
+          {searchQuery && searchResults.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">No entities found</p>
+          )}
+          
+          {!searchQuery && network.entities.length > 0 && (
+            <p className="text-xs text-muted-foreground">Search {network.entities.length} entities by name or type</p>
           )}
         </CollapsibleContent>
       </Collapsible>

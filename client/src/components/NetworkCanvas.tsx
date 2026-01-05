@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus } from 'lucide-react';
+import { Plus, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import EntityCard from './EntityCard';
 import { RelationshipCard } from './RelationshipCard';
 
@@ -50,6 +50,7 @@ export default function NetworkCanvas() {
   const [relationshipCardPosition, setRelationshipCardPosition] = useState<{ x: number; y: number } | null>(null);
   const [selectedRelationship, setSelectedRelationship] = useState<Relationship | null>(null);
   const simulationRef = useRef<d3.Simulation<SimulationNode, SimulationLink> | null>(null);
+  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
   // Handle resize
   useEffect(() => {
@@ -94,6 +95,7 @@ export default function NetworkCanvas() {
       });
 
     svg.call(zoom);
+    zoomRef.current = zoom;
 
     const nodes: SimulationNode[] = network.entities.map((e) => ({
       ...e,
@@ -331,6 +333,98 @@ export default function NetworkCanvas() {
         className="absolute inset-0"
       />
       
+      {/* Zoom Controls */}
+      <div className="absolute bottom-4 left-4 flex flex-col gap-1">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 bg-card/90 hover:bg-card"
+          onClick={() => {
+            if (svgRef.current && zoomRef.current) {
+              d3.select(svgRef.current).transition().duration(300).call(
+                zoomRef.current.scaleBy, 1.3
+              );
+            }
+          }}
+          title="Zoom In"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 bg-card/90 hover:bg-card"
+          onClick={() => {
+            if (svgRef.current && zoomRef.current) {
+              d3.select(svgRef.current).transition().duration(300).call(
+                zoomRef.current.scaleBy, 0.7
+              );
+            }
+          }}
+          title="Zoom Out"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 bg-card/90 hover:bg-card"
+          onClick={() => {
+            if (svgRef.current && zoomRef.current) {
+              // Calculate bounding box of all nodes
+              const nodeGs = svgRef.current.querySelectorAll('g.node');
+              if (nodeGs.length === 0) return;
+              
+              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+              nodeGs.forEach((node) => {
+                const transform = node.getAttribute('transform');
+                if (transform) {
+                  const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
+                  if (match) {
+                    const x = parseFloat(match[1]);
+                    const y = parseFloat(match[2]);
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                  }
+                }
+              });
+              
+              // Add padding
+              const padding = 50;
+              minX -= padding;
+              minY -= padding;
+              maxX += padding;
+              maxY += padding;
+              
+              const boxWidth = maxX - minX;
+              const boxHeight = maxY - minY;
+              const { width, height } = dimensions;
+              
+              // Calculate scale to fit
+              const scale = Math.min(width / boxWidth, height / boxHeight, 1);
+              const centerX = (minX + maxX) / 2;
+              const centerY = (minY + maxY) / 2;
+              
+              // Create transform to center and scale
+              const transform = d3.zoomIdentity
+                .translate(width / 2, height / 2)
+                .scale(scale)
+                .translate(-centerX, -centerY);
+              
+              d3.select(svgRef.current).transition().duration(500).call(
+                zoomRef.current.transform, transform
+              );
+            }
+          }}
+          title="Reset Zoom"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Minimap */}
       <div className="absolute bottom-4 right-4 w-32 h-24 bg-card/80 border border-border rounded shadow-sm opacity-50">
         <div className="text-[9px] text-muted-foreground p-1 font-mono">
           {network.entities.length} entities · {network.relationships.length} connections
