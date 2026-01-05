@@ -119,6 +119,17 @@ export default function NetworkCanvas() {
         return 'none';
       });
 
+    // Create invisible hitboxes for hover detection on links
+    const linkHitboxes = linkGroup.selectAll('path.hitbox')
+      .data(links)
+      .join('path')
+      .attr('class', 'hitbox')
+      .attr('fill', 'none')
+      .attr('stroke', 'transparent')
+      .attr('stroke-width', 15) // Wider hitbox for easier hovering
+      .style('cursor', 'pointer');
+
+    // Labels hidden by default, shown on hover
     const linkLabels = linkGroup.selectAll('text')
       .data(links.filter((l) => l.label))
       .join('text')
@@ -126,7 +137,32 @@ export default function NetworkCanvas() {
       .attr('font-size', '9px')
       .attr('fill', '#666666')
       .attr('text-anchor', 'middle')
+      .attr('opacity', 0) // Hidden by default
+      .attr('pointer-events', 'none')
       .text((d) => d.label || '');
+
+    // Show label on hover
+    linkHitboxes
+      .on('mouseenter', function(event, d) {
+        // Highlight the link
+        linkPaths.filter((l) => l.id === d.id)
+          .attr('stroke', '#B8860B')
+          .attr('stroke-width', 2.5)
+          .attr('stroke-opacity', 1);
+        // Show the label
+        linkLabels.filter((l) => l.id === d.id)
+          .attr('opacity', 1);
+      })
+      .on('mouseleave', function(event, d) {
+        // Reset the link
+        linkPaths.filter((l) => l.id === d.id)
+          .attr('stroke', '#888888')
+          .attr('stroke-width', 1.5)
+          .attr('stroke-opacity', 0.6);
+        // Hide the label
+        linkLabels.filter((l) => l.id === d.id)
+          .attr('opacity', 0);
+      });
 
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
@@ -180,6 +216,13 @@ export default function NetworkCanvas() {
 
     simulation.on('tick', () => {
       linkPaths.attr('d', (d) => {
+        const source = d.source as SimulationNode;
+        const target = d.target as SimulationNode;
+        return generateCurvedPath(source, target);
+      });
+
+      // Update hitbox paths to match visible paths
+      linkHitboxes.attr('d', (d) => {
         const source = d.source as SimulationNode;
         const target = d.target as SimulationNode;
         return generateCurvedPath(source, target);
