@@ -14,7 +14,8 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronDown, Loader2, Download, Share2, Save } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { generateId, Entity, Relationship } from '@/lib/store';
@@ -36,6 +37,21 @@ export default function Sidebar() {
   const [aiInput, setAiInput] = useState('');
   const [aiMode, setAiMode] = useState<'add' | 'new'>('add');
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Manual add sections
+  const [manualOpen, setManualOpen] = useState(false);
+  
+  // Add entity form state
+  const [entityName, setEntityName] = useState('');
+  const [entityType, setEntityType] = useState<Entity['type']>('person');
+  const [entityImportance, setEntityImportance] = useState(5);
+  const [entityDate, setEntityDate] = useState('');
+  
+  // Add relationship form state
+  const [relSource, setRelSource] = useState('');
+  const [relTarget, setRelTarget] = useState('');
+  const [relType, setRelType] = useState('');
+  const [relLabel, setRelLabel] = useState('');
 
   // Handle AI extraction/discovery
   const handleAiSubmit = useCallback(async () => {
@@ -233,6 +249,72 @@ export default function Sidebar() {
     toast.success('Network exported');
   }, [network]);
 
+  // Add entity manually
+  const handleAddEntity = useCallback(() => {
+    if (!entityName.trim()) {
+      toast.error('Entity name is required');
+      return;
+    }
+
+    const newEntity: Entity = {
+      id: generateId(),
+      name: entityName.trim(),
+      type: entityType,
+      importance: entityImportance,
+      description: entityDate ? `Date: ${entityDate}` : undefined,
+    };
+
+    dispatch({ type: 'ADD_ENTITY', payload: newEntity });
+    toast.success(`Added ${entityName}`);
+    
+    // Reset form
+    setEntityName('');
+    setEntityImportance(5);
+    setEntityDate('');
+  }, [entityName, entityType, entityImportance, entityDate, dispatch]);
+
+  // Add relationship manually
+  const handleAddRelationship = useCallback(() => {
+    if (!relSource || !relTarget) {
+      toast.error('Both source and target entities are required');
+      return;
+    }
+    if (relSource === relTarget) {
+      toast.error('Source and target cannot be the same');
+      return;
+    }
+
+    // Check if relationship already exists
+    const exists = network.relationships.some(
+      (r) => (r.source === relSource && r.target === relTarget) ||
+             (r.source === relTarget && r.target === relSource)
+    );
+    if (exists) {
+      toast.error('A relationship between these entities already exists');
+      return;
+    }
+
+    const newRelationship: Relationship = {
+      id: generateId(),
+      source: relSource,
+      target: relTarget,
+      type: relType || 'connection',
+      label: relLabel || relType || 'connection',
+    };
+
+    dispatch({ type: 'ADD_RELATIONSHIP', payload: newRelationship });
+    
+    const sourceName = network.entities.find((e) => e.id === relSource)?.name || 'Entity';
+    const targetName = network.entities.find((e) => e.id === relTarget)?.name || 'Entity';
+    toast.success(`Connected ${sourceName} to ${targetName}`);
+    
+    // Reset form
+    setRelSource('');
+    setRelTarget('');
+    setRelType('');
+    setRelLabel('');
+  }, [relSource, relTarget, relType, relLabel, network.entities, network.relationships, dispatch]);
+
   return (
     <aside className="w-72 bg-sidebar border-r border-sidebar-border flex flex-col h-full overflow-hidden">
       {/* Network Info Section */}
@@ -335,6 +417,106 @@ export default function Sidebar() {
               <Label htmlFor="new" className="text-xs text-muted-foreground cursor-pointer">Start new</Label>
             </div>
           </RadioGroup>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <div className="border-t border-sidebar-border" />
+
+      {/* Manual Add Section */}
+      <Collapsible open={manualOpen} onOpenChange={setManualOpen}>
+        <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-sidebar-accent/50 transition-colors">
+          <span className="section-header mb-0 border-0 pb-0">Manual</span>
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${manualOpen ? '' : '-rotate-90'}`} />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-4 pb-4 space-y-4">
+          {/* Add Entity Form */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Plus className="w-3 h-3" /> Add Entity
+            </div>
+            <Input
+              value={entityName}
+              onChange={(e) => setEntityName(e.target.value)}
+              placeholder="Entity name"
+              className="h-8 text-sm bg-background"
+            />
+            <Select value={entityType} onValueChange={(v) => setEntityType(v as Entity['type'])}>
+              <SelectTrigger className="h-8 text-sm bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="person">Person</SelectItem>
+                <SelectItem value="corporation">Corporation</SelectItem>
+                <SelectItem value="government">Government</SelectItem>
+                <SelectItem value="financial">Financial</SelectItem>
+                <SelectItem value="organization">Organization</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="space-y-1">
+              <Label className="text-[10px] text-muted-foreground">Importance: {entityImportance}</Label>
+              <Slider
+                value={[entityImportance]}
+                onValueChange={(v) => setEntityImportance(v[0])}
+                min={1}
+                max={10}
+                step={1}
+                className="py-1"
+              />
+            </div>
+            <Input
+              value={entityDate}
+              onChange={(e) => setEntityDate(e.target.value)}
+              placeholder="Date (optional, e.g. 1990-2000)"
+              className="h-8 text-sm bg-background"
+            />
+            <Button onClick={handleAddEntity} size="sm" className="w-full h-7 text-xs">
+              <Plus className="w-3 h-3 mr-1" /> Add Entity
+            </Button>
+          </div>
+
+          {/* Add Relationship Form */}
+          {network.entities.length >= 2 && (
+            <div className="space-y-2 pt-2 border-t border-sidebar-border">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Link className="w-3 h-3" /> Add Relationship
+              </div>
+              <Select value={relSource} onValueChange={setRelSource}>
+                <SelectTrigger className="h-8 text-sm bg-background">
+                  <SelectValue placeholder="Source entity" />
+                </SelectTrigger>
+                <SelectContent>
+                  {network.entities.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={relTarget} onValueChange={setRelTarget}>
+                <SelectTrigger className="h-8 text-sm bg-background">
+                  <SelectValue placeholder="Target entity" />
+                </SelectTrigger>
+                <SelectContent>
+                  {network.entities.filter((e) => e.id !== relSource).map((e) => (
+                    <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={relType}
+                onChange={(e) => setRelType(e.target.value)}
+                placeholder="Relationship type (e.g. Invested in)"
+                className="h-8 text-sm bg-background"
+              />
+              <Input
+                value={relLabel}
+                onChange={(e) => setRelLabel(e.target.value)}
+                placeholder="Label (optional)"
+                className="h-8 text-sm bg-background"
+              />
+              <Button onClick={handleAddRelationship} size="sm" className="w-full h-7 text-xs">
+                <Link className="w-3 h-3 mr-1" /> Add Relationship
+              </Button>
+            </div>
+          )}
         </CollapsibleContent>
       </Collapsible>
 

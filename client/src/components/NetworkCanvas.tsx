@@ -8,7 +8,13 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import * as d3 from 'd3';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { Entity, Relationship, entityColors } from '@/lib/store';
+import { Entity, Relationship, entityColors, generateId } from '@/lib/store';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Plus } from 'lucide-react';
 
 interface SimulationNode extends Entity {
   x: number;
@@ -29,7 +35,12 @@ interface SimulationLink {
 export default function NetworkCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { network, selectedEntityId, selectEntity, updateEntity } = useNetwork();
+  const { network, selectedEntityId, selectEntity, updateEntity, dispatch } = useNetwork();
+  
+  // Add entity modal state
+  const [showAddEntity, setShowAddEntity] = useState(false);
+  const [newEntityName, setNewEntityName] = useState('');
+  const [newEntityType, setNewEntityType] = useState<Entity['type']>('person');
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const simulationRef = useRef<d3.Simulation<SimulationNode, SimulationLink> | null>(null);
 
