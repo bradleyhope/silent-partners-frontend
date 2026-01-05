@@ -8,7 +8,7 @@
 export interface Entity {
   id: string;
   name: string;
-  type: 'person' | 'organization' | 'financial' | 'government' | 'event' | 'unknown';
+  type: 'person' | 'corporation' | 'organization' | 'financial' | 'government' | 'event' | 'unknown';
   description?: string;
   importance?: number;
   x?: number;
@@ -69,12 +69,13 @@ export function generateId(): string {
 
 // Entity type colors
 export const entityColors: Record<Entity['type'], string> = {
-  person: '#6B8E9F',
+  person: '#4A90A4',
+  corporation: '#7CB342',
   organization: '#7BA05B',
   financial: '#C9A227',
   government: '#8B7355',
   event: '#9B6B9E',
-  unknown: '#888888',
+  unknown: '#78909C',
 };
 
 // Relationship status styles

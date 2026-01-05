@@ -30,7 +30,7 @@ const EXAMPLE_NETWORKS = [
 export default function Sidebar() {
   const { network, dispatch, addEntitiesAndRelationships, clearNetwork } = useNetwork();
   const [networkOpen, setNetworkOpen] = useState(true);
-  const [aiOpen, setAiOpen] = useState(true);
+  const [aiOpen, setAiOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   
   // AI input state
@@ -316,7 +316,9 @@ export default function Sidebar() {
   }, [relSource, relTarget, relType, relLabel, network.entities, network.relationships, dispatch]);
 
   return (
-    <aside className="w-72 bg-sidebar border-r border-sidebar-border flex flex-col h-full overflow-hidden">
+    <aside className="w-72 bg-sidebar border-r border-sidebar-border flex flex-col h-full">
+      {/* Scrollable content area */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
       {/* Network Info Section */}
       <Collapsible open={networkOpen} onOpenChange={setNetworkOpen}>
         <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-sidebar-accent/50 transition-colors">
@@ -528,12 +530,37 @@ export default function Sidebar() {
           <span className="section-header mb-0 border-0 pb-0">View</span>
           <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${viewOpen ? '' : '-rotate-90'}`} />
         </CollapsibleTrigger>
-        <CollapsibleContent className="px-4 pb-4 space-y-3">
-          <div className="text-xs text-muted-foreground">
-            <p className="mb-2">Layout and display options coming soon.</p>
+        <CollapsibleContent className="px-4 pb-4 space-y-4">
+          {/* Theme selector */}
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Theme</Label>
+            <Select defaultValue="classic">
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Select theme" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="classic">Lombardi Classic</SelectItem>
+                <SelectItem value="minimal">Clean Minimal</SelectItem>
+                <SelectItem value="dark">Dark Mode</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Show labels toggle */}
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-medium">Show All Labels</Label>
+            <input type="checkbox" className="w-4 h-4 rounded border-border" />
+          </div>
+
+          {/* Entity type legend */}
+          <div className="pt-2 border-t border-border">
+            <Label className="text-xs font-medium mb-2 block">Entity Types</Label>
             <div className="space-y-1 font-mono text-[10px]">
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-[#6B8E9F]"></span> Person
+                <span className="w-3 h-3 rounded-full bg-[#4A90A4]"></span> Person
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-[#7CB342]"></span> Corporation
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-[#7BA05B]"></span> Organization
@@ -549,8 +576,8 @@ export default function Sidebar() {
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      </div>
+      {/* End scrollable content area */}
 
       {/* Footer stats */}
       <div className="px-4 py-3 border-t border-sidebar-border bg-sidebar-accent/30">

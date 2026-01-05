@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Plus } from 'lucide-react';
+import EntityCard from './EntityCard';
 
 interface SimulationNode extends Entity {
   x: number;
@@ -42,6 +43,7 @@ export default function NetworkCanvas() {
   const [newEntityName, setNewEntityName] = useState('');
   const [newEntityType, setNewEntityType] = useState<Entity['type']>('person');
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | null>(null);
   const simulationRef = useRef<d3.Simulation<SimulationNode, SimulationLink> | null>(null);
 
   // Handle resize
@@ -218,11 +220,20 @@ export default function NetworkCanvas() {
     nodeContainers.on('click', (event, d) => {
       event.stopPropagation();
       console.log('Node clicked:', d.id, d.name);
+      // Get screen position for the card
+      const svgRect = svgRef.current?.getBoundingClientRect();
+      if (svgRect) {
+        setCardPosition({
+          x: svgRect.left + d.x,
+          y: svgRect.top + d.y
+        });
+      }
       selectEntity(d.id);
     });
 
     svg.on('click', () => {
       selectEntity(null);
+      setCardPosition(null);
     });
 
     simulation.on('tick', () => {
@@ -297,6 +308,22 @@ export default function NetworkCanvas() {
           {network.entities.length} entities · {network.relationships.length} connections
         </div>
       </div>
+
+      {/* Entity Card */}
+      {selectedEntityId && cardPosition && (() => {
+        const selectedEntity = network.entities.find(e => e.id === selectedEntityId);
+        if (!selectedEntity) return null;
+        return (
+          <EntityCard
+            entity={selectedEntity}
+            position={cardPosition}
+            onClose={() => {
+              selectEntity(null);
+              setCardPosition(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
