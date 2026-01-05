@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Plus } from 'lucide-react';
 import EntityCard from './EntityCard';
+import { RelationshipCard } from './RelationshipCard';
 
 interface SimulationNode extends Entity {
   x: number;
@@ -46,6 +47,8 @@ export default function NetworkCanvas() {
   const [newEntityType, setNewEntityType] = useState<Entity['type']>('person');
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | null>(null);
+  const [relationshipCardPosition, setRelationshipCardPosition] = useState<{ x: number; y: number } | null>(null);
+  const [selectedRelationship, setSelectedRelationship] = useState<Relationship | null>(null);
   const simulationRef = useRef<d3.Simulation<SimulationNode, SimulationLink> | null>(null);
 
   // Handle resize
@@ -156,8 +159,19 @@ export default function NetworkCanvas() {
       .attr('pointer-events', 'none')
       .text((d) => d.label || '');
 
-    // Show label on hover
+    // Click to select relationship
     linkHitboxes
+      .on('click', function(event, d) {
+        event.stopPropagation();
+        // Find the original relationship
+        const rel = network.relationships.find(r => r.id === d.id);
+        if (rel) {
+          setSelectedRelationship(rel);
+          setRelationshipCardPosition({ x: event.clientX, y: event.clientY });
+          selectEntity(null);
+          setCardPosition(null);
+        }
+      })
       .on('mouseenter', function(event, d) {
         // Highlight the link
         linkPaths.filter((l) => l.id === d.id)
@@ -238,6 +252,8 @@ export default function NetworkCanvas() {
     svg.on('click', () => {
       selectEntity(null);
       setCardPosition(null);
+      setSelectedRelationship(null);
+      setRelationshipCardPosition(null);
     });
 
     simulation.on('tick', () => {
@@ -333,6 +349,20 @@ export default function NetworkCanvas() {
           />
         );
       })()}
+
+      {/* Relationship Card */}
+      {selectedRelationship && relationshipCardPosition && (
+        <RelationshipCard
+          relationship={selectedRelationship}
+          sourceEntity={network.entities.find(e => e.id === selectedRelationship.source)}
+          targetEntity={network.entities.find(e => e.id === selectedRelationship.target)}
+          position={relationshipCardPosition}
+          onClose={() => {
+            setSelectedRelationship(null);
+            setRelationshipCardPosition(null);
+          }}
+        />
+      )}
     </div>
   );
 }

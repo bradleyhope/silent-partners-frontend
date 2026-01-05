@@ -12,6 +12,7 @@ interface User {
   email: string;
   username?: string;
   ai_credits_remaining?: number;
+  credits?: number;
 }
 
 interface AuthContextType {

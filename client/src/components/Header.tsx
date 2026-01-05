@@ -7,7 +7,15 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { FolderOpen, User, LogOut, LogIn } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { FolderOpen, User, LogOut, LogIn, Settings, CreditCard } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import AuthModal from './AuthModal';
 import MyNetworksModal from './MyNetworksModal';
@@ -16,6 +24,18 @@ export default function Header() {
   const { user, isAuthenticated, logout } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showNetworksModal, setShowNetworksModal] = useState(false);
+
+  // Get user initials for avatar
+  const getUserInitials = () => {
+    if (!user?.username && !user?.email) return 'U';
+    const name = user.username || user.email?.split('@')[0] || '';
+    return name.charAt(0).toUpperCase();
+  };
+
+  // Get display name
+  const getDisplayName = () => {
+    return user?.username || user?.email?.split('@')[0] || 'User';
+  };
 
   return (
     <>
@@ -52,15 +72,60 @@ export default function Header() {
                   <FolderOpen className="w-3.5 h-3.5" />
                   My Networks
                 </Button>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="h-8 text-xs gap-1.5"
-                  onClick={logout}
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  {user?.email?.split('@')[0] || 'Logout'}
-                </Button>
+
+                {/* User Profile Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-8 gap-2 pl-2 pr-3"
+                    >
+                      {/* User Avatar */}
+                      <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+                        <span className="text-xs font-medium text-primary">
+                          {getUserInitials()}
+                        </span>
+                      </div>
+                      <span className="text-xs font-medium">
+                        {getDisplayName()}
+                      </span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel className="font-normal">
+                      <div className="flex flex-col space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                          {getDisplayName()}
+                        </p>
+                        {user?.email && (
+                          <p className="text-xs leading-none text-muted-foreground">
+                            {user.email}
+                          </p>
+                        )}
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setShowNetworksModal(true)}>
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      <span>My Networks</span>
+                    </DropdownMenuItem>
+                    {user?.credits !== undefined && (
+                      <DropdownMenuItem disabled>
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        <span>AI Credits: {user.credits}</span>
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem 
+                      onClick={logout}
+                      className="text-red-600 focus:text-red-600"
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      <span>Sign Out</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
             ) : (
               <Button 
