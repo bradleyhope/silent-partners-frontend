@@ -247,8 +247,11 @@ export default function Sidebar() {
     }
   }, [clearNetwork, dispatch, addEntitiesAndRelationships]);
 
+  // Export format state
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  
   // Export network as JSON
-  const handleExport = useCallback(() => {
+  const handleExportJson = useCallback(() => {
     const data = JSON.stringify(network, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -257,8 +260,87 @@ export default function Sidebar() {
     a.download = `${network.title.toLowerCase().replace(/\s+/g, '-')}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success('Network exported');
+    toast.success('Network exported as JSON');
+    setShowExportMenu(false);
   }, [network]);
+
+  // Export network as SVG
+  const handleExportSvg = useCallback(() => {
+    const svg = document.querySelector('#network-canvas svg');
+    if (!svg) {
+      toast.error('No network to export');
+      return;
+    }
+    
+    // Clone the SVG to avoid modifying the original
+    const svgClone = svg.cloneNode(true) as SVGSVGElement;
+    
+    // Add XML declaration and namespace
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+    const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${network.title.toLowerCase().replace(/\s+/g, '-')}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Network exported as SVG');
+    setShowExportMenu(false);
+  }, [network]);
+
+  // Export network as PNG
+  const handleExportPng = useCallback(() => {
+    const svg = document.querySelector('#network-canvas svg');
+    if (!svg) {
+      toast.error('No network to export');
+      return;
+    }
+    
+    // Clone and prepare SVG
+    const svgClone = svg.cloneNode(true) as SVGSVGElement;
+    svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    
+    const svgData = new XMLSerializer().serializeToString(svgClone);
+    const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scale = 2; // Higher resolution
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const pngUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = pngUrl;
+            a.download = `${network.title.toLowerCase().replace(/\s+/g, '-')}.png`;
+            a.click();
+            URL.revokeObjectURL(pngUrl);
+            toast.success('Network exported as PNG');
+          }
+        }, 'image/png');
+      }
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+    setShowExportMenu(false);
+  }, [network]);
+
+  // Legacy export handler (for backward compatibility)
+  const handleExport = useCallback(() => {
+    setShowExportMenu(prev => !prev);
+  }, []);
 
   // Handle save to cloud
   const handleSave = useCallback(async () => {
@@ -296,6 +378,53 @@ export default function Sidebar() {
       toast.error(error instanceof Error ? error.message : 'Failed to save network');
     } finally {
       setIsSaving(false);
+    }
+  }, [network, isAuthenticated]);
+
+  // Handle share network
+  const [isSharing, setIsSharing] = useState(false);
+  const handleShare = useCallback(async () => {
+    if (!isAuthenticated) {
+      toast.error('Please sign in to share networks');
+      return;
+    }
+
+    if (network.entities.length === 0) {
+      toast.error('Nothing to share - add some entities first');
+      return;
+    }
+
+    setIsSharing(true);
+    try {
+      // First save the network to get an ID
+      const { id } = await api.saveGraph({
+        name: network.title,
+        description: network.description,
+        entities: network.entities.map(e => ({
+          id: e.id,
+          name: e.name,
+          type: e.type,
+          description: e.description,
+        })),
+        relationships: network.relationships.map(r => ({
+          source: r.source,
+          target: r.target,
+          type: r.type,
+          label: r.label,
+        })),
+      });
+
+      // Then generate share link
+      const { share_url } = await api.shareGraph(id);
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(share_url);
+      toast.success('Share link copied to clipboard!');
+    } catch (error) {
+      console.error('Share error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to share network');
+    } finally {
+      setIsSharing(false);
     }
   }, [network, isAuthenticated]);
 
@@ -536,12 +665,53 @@ export default function Sidebar() {
               )}
               Save
             </Button>
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" disabled>
-              <Share2 className="w-3 h-3 mr-1" /> Share
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="flex-1 h-7 text-xs" 
+              onClick={handleShare}
+              disabled={isSharing || network.entities.length === 0}
+            >
+              {isSharing ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Share2 className="w-3 h-3 mr-1" />
+              )}
+              Share
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs px-2" onClick={handleExport}>
-              <Download className="w-3 h-3" />
-            </Button>
+            <div className="relative">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-7 text-xs px-2" 
+                onClick={handleExport}
+                disabled={network.entities.length === 0}
+              >
+                <Download className="w-3 h-3" />
+              </Button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-lg z-50 min-w-[120px]">
+                  <button
+                    onClick={handleExportPng}
+                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
+                  >
+                    Export as PNG
+                  </button>
+                  <button
+                    onClick={handleExportSvg}
+                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
+                  >
+                    Export as SVG
+                  </button>
+                  <button
+                    onClick={handleExportJson}
+                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors border-t border-border"
+                  >
+                    Export as JSON
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -746,8 +916,8 @@ export default function Sidebar() {
                 <SelectValue placeholder="Select theme" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="classic">Lombardi Classic</SelectItem>
-                <SelectItem value="minimal">Clean Minimal</SelectItem>
+                <SelectItem value="default">Default</SelectItem>
+                <SelectItem value="lombardi">Lombardi Classic</SelectItem>
                 <SelectItem value="dark">Dark Mode</SelectItem>
               </SelectContent>
             </Select>

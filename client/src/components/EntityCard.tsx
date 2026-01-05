@@ -7,13 +7,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { Entity } from '@/lib/store';
+import { Entity, generateId } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { X, Trash2, Sparkles, Link } from 'lucide-react';
+import { X, Trash2, Sparkles, Link, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import api from '@/lib/api';
 
 interface EntityCardProps {
   entity: Entity;
@@ -31,13 +32,14 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 export default function EntityCard({ entity, position, onClose }: EntityCardProps) {
-  const { network, dispatch } = useNetwork();
+  const { network, dispatch, addEntitiesAndRelationships } = useNetwork();
   const cardRef = useRef<HTMLDivElement>(null);
   
   const [name, setName] = useState(entity.name);
   const [type, setType] = useState(entity.type);
   const [description, setDescription] = useState(entity.description || '');
   const [isEditing, setIsEditing] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false);
 
   // Get connections for this entity
   const connections = network.relationships.filter(
@@ -93,8 +95,102 @@ export default function EntityCard({ entity, position, onClose }: EntityCardProp
     toast.success('Entity deleted');
   };
 
-  const handleEnrich = () => {
-    toast.info('AI enrichment coming soon');
+  const handleEnrich = async () => {
+    setIsEnriching(true);
+    
+    try {
+      // Build context from existing connections
+      const contextParts = connections.map(c => 
+        `${c.entity?.name || 'Unknown'} (${c.relationship.type || 'related'})`
+      );
+      const context = contextParts.length > 0 
+        ? `Known connections: ${contextParts.join(', ')}`
+        : undefined;
+
+      const result = await api.enrichEntity(entity.name, entity.type, context);
+      
+      if (result.enriched) {
+        // Update the entity description with enriched data
+        const enrichedDescription = [
+          result.enriched.description,
+          result.enriched.key_facts?.length > 0 
+            ? `Key facts: ${result.enriched.key_facts.join('; ')}`
+            : null
+        ].filter(Boolean).join('\n\n');
+
+        dispatch({
+          type: 'UPDATE_ENTITY',
+          payload: { 
+            id: entity.id, 
+            updates: { 
+              description: enrichedDescription,
+              type: result.enriched.type as Entity['type'] || entity.type
+            } 
+          }
+        });
+        setDescription(enrichedDescription);
+
+        // Add suggested connections as new entities and relationships
+        if (result.enriched.connections_suggested?.length > 0) {
+          const newEntities: Entity[] = [];
+          const newRelationships: { id: string; source: string; target: string; type: string; label: string }[] = [];
+
+          for (const suggestion of result.enriched.connections_suggested) {
+            // Check if entity already exists
+            const existingEntity = network.entities.find(
+              e => e.name.toLowerCase() === suggestion.name.toLowerCase()
+            );
+
+            if (!existingEntity) {
+              const newId = generateId();
+              newEntities.push({
+                id: newId,
+                name: suggestion.name,
+                type: 'person', // Default type
+                description: `Suggested connection to ${entity.name}`,
+                importance: 5,
+              });
+              newRelationships.push({
+                id: generateId(),
+                source: entity.id,
+                target: newId,
+                type: suggestion.relationship,
+                label: suggestion.relationship,
+              });
+            } else {
+              // Check if relationship already exists
+              const existingRel = network.relationships.find(
+                r => (r.source === entity.id && r.target === existingEntity.id) ||
+                     (r.target === entity.id && r.source === existingEntity.id)
+              );
+              if (!existingRel) {
+                newRelationships.push({
+                  id: generateId(),
+                  source: entity.id,
+                  target: existingEntity.id,
+                  type: suggestion.relationship,
+                  label: suggestion.relationship,
+                });
+              }
+            }
+          }
+
+          if (newEntities.length > 0 || newRelationships.length > 0) {
+            addEntitiesAndRelationships(newEntities, newRelationships);
+            toast.success(`Enriched! Added ${newEntities.length} entities and ${newRelationships.length} connections`);
+          } else {
+            toast.success('Entity enriched with additional details');
+          }
+        } else {
+          toast.success('Entity enriched with additional details');
+        }
+      }
+    } catch (error) {
+      console.error('Enrich error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to enrich entity');
+    } finally {
+      setIsEnriching(false);
+    }
   };
 
   return (
@@ -166,8 +262,8 @@ export default function EntityCard({ entity, position, onClose }: EntityCardProp
               >
                 {entity.name}
               </h3>
-              {entity.description && (
-                <p className="text-xs text-muted-foreground mt-1">{entity.description}</p>
+              {description && (
+                <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{description}</p>
               )}
               {entity.importance && (
                 <p className="text-[10px] text-muted-foreground mt-1">Importance: {entity.importance}/10</p>
@@ -215,8 +311,14 @@ export default function EntityCard({ entity, position, onClose }: EntityCardProp
                 size="sm" 
                 className="h-7 text-xs px-2"
                 onClick={handleEnrich}
+                disabled={isEnriching}
+                title="Enrich with AI"
               >
-                <Sparkles className="w-3 h-3" />
+                {isEnriching ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
               </Button>
               <Button 
                 variant="outline" 

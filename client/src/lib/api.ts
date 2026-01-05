@@ -211,6 +211,33 @@ class ApiClient {
   }> {
     return this.request(`/graphs/${id}`);
   }
+
+  // Share a graph (generate shareable link)
+  async shareGraph(id: number): Promise<{ share_url: string; share_id: string }> {
+    return this.request(`/graphs/${id}/share`, {
+      method: 'POST',
+    });
+  }
+
+  // Enrich an entity with AI
+  async enrichEntity(entityName: string, entityType: string, context?: string): Promise<{
+    enriched: {
+      name: string;
+      type: string;
+      description: string;
+      key_facts: string[];
+      connections_suggested: Array<{ name: string; relationship: string }>;
+    };
+  }> {
+    return this.request('/ai/enrich', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        entity_name: entityName, 
+        entity_type: entityType,
+        context 
+      }),
+    });
+  }
 }
 
 export const api = new ApiClient();

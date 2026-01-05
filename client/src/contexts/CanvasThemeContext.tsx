@@ -2,13 +2,19 @@
  * Silent Partners - Canvas Theme Context
  * 
  * Manages the visual theme of the network canvas.
+ * 
+ * Themes:
+ * - default: Current cream/gold aesthetic (what you see on load)
+ * - lombardi: True Mark Lombardi style - black lines on white/cream, no colors
+ * - dark: Dark mode without distracting grid dots
  */
 
 import { createContext, useContext, useState, ReactNode } from 'react';
 
-export type CanvasTheme = 'classic' | 'minimal' | 'dark';
+export type CanvasTheme = 'default' | 'lombardi' | 'dark';
 
 interface CanvasThemeConfig {
+  name: string;
   background: string;
   nodeStroke: string;
   nodeFill: string;
@@ -17,10 +23,15 @@ interface CanvasThemeConfig {
   linkLabelText: string;
   textColor: string;
   gridColor: string;
+  showGrid: boolean;
+  // Lombardi mode uses black for all entity types instead of colors
+  useEntityColors: boolean;
 }
 
 export const canvasThemes: Record<CanvasTheme, CanvasThemeConfig> = {
-  classic: {
+  // Default: Current cream/gold aesthetic with colored entity types
+  default: {
+    name: 'Default',
     background: '#F5F0E6',
     nodeStroke: '#5D4E37',
     nodeFill: '#FDFBF7',
@@ -29,26 +40,37 @@ export const canvasThemes: Record<CanvasTheme, CanvasThemeConfig> = {
     linkLabelText: '#5D4E37',
     textColor: '#3D3425',
     gridColor: '#E8E0D0',
+    showGrid: false,
+    useEntityColors: true,
   },
-  minimal: {
-    background: '#FFFFFF',
-    nodeStroke: '#374151',
-    nodeFill: '#FFFFFF',
-    linkStroke: '#9CA3AF',
-    linkLabelBg: '#FFFFFF',
-    linkLabelText: '#374151',
-    textColor: '#111827',
-    gridColor: '#F3F4F6',
+  // Lombardi Classic: True Mark Lombardi style - black ink on cream paper
+  // No colors, just black circles and curved lines like his original drawings
+  lombardi: {
+    name: 'Lombardi Classic',
+    background: '#FFFEF9', // Slightly warm white like aged paper
+    nodeStroke: '#1A1A1A', // Black ink
+    nodeFill: '#FFFEF9', // Same as background - hollow circles
+    linkStroke: '#1A1A1A', // Black ink
+    linkLabelBg: '#FFFEF9',
+    linkLabelText: '#1A1A1A',
+    textColor: '#1A1A1A',
+    gridColor: 'transparent',
+    showGrid: false,
+    useEntityColors: false, // All entities are black circles
   },
+  // Dark mode: Clean dark background without distracting grid
   dark: {
-    background: '#1A1A2E',
+    name: 'Dark Mode',
+    background: '#0F0F14', // Very dark, almost black
     nodeStroke: '#E2E8F0',
-    nodeFill: '#2D2D44',
-    linkStroke: '#64748B',
-    linkLabelBg: '#1A1A2E',
+    nodeFill: '#1E1E28',
+    linkStroke: '#6B7280',
+    linkLabelBg: '#1E1E28',
     linkLabelText: '#E2E8F0',
     textColor: '#F1F5F9',
-    gridColor: '#2D2D44',
+    gridColor: 'transparent', // No grid in dark mode
+    showGrid: false,
+    useEntityColors: true,
   },
 };
 
@@ -63,7 +85,7 @@ interface CanvasThemeContextType {
 const CanvasThemeContext = createContext<CanvasThemeContextType | null>(null);
 
 export function CanvasThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<CanvasTheme>('classic');
+  const [theme, setTheme] = useState<CanvasTheme>('default');
   const [showAllLabels, setShowAllLabels] = useState(false);
 
   return (

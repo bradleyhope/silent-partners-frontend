@@ -219,12 +219,15 @@ export default function NetworkCanvas() {
       .style('cursor', 'pointer')
       .call(drag);
 
+    // In Lombardi mode, all nodes are hollow black circles (no fill colors)
+    const useColors = (themeConfig as any).useEntityColors !== false;
+    
     nodeContainers.append('circle')
       .attr('r', (d) => 8 + (d.importance || 5) * 0.5)
-      .attr('fill', (d) => entityColors[d.type] || entityColors.unknown)
+      .attr('fill', (d) => useColors ? (entityColors[d.type] || entityColors.unknown) : themeConfig.nodeFill)
       .attr('stroke', (d) => d.id === selectedEntityId ? '#B8860B' : themeConfig.nodeStroke)
-      .attr('stroke-width', (d) => d.id === selectedEntityId ? 3 : 2)
-      .attr('opacity', 0.9);
+      .attr('stroke-width', (d) => d.id === selectedEntityId ? 3 : useColors ? 2 : 1.5)
+      .attr('opacity', useColors ? 0.9 : 1);
 
     nodeContainers.append('text')
       .attr('dy', (d) => 20 + (d.importance || 5) * 0.5)
