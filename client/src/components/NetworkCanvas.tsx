@@ -8,6 +8,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import * as d3 from 'd3';
 import { useNetwork } from '@/contexts/NetworkContext';
+import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
 import { Entity, Relationship, entityColors, generateId } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +38,7 @@ export default function NetworkCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { network, selectedEntityId, selectEntity, updateEntity, dispatch } = useNetwork();
+  const { config: themeConfig, showAllLabels } = useCanvasTheme();
   
   // Add entity modal state
   const [showAddEntity, setShowAddEntity] = useState(false);
@@ -123,7 +125,7 @@ export default function NetworkCanvas() {
       .data(links)
       .join('path')
       .attr('fill', 'none')
-      .attr('stroke', '#888888')
+      .attr('stroke', themeConfig.linkStroke)
       .attr('stroke-width', 1.5)
       .attr('stroke-opacity', 0.6)
       .attr('stroke-dasharray', (d) => {
@@ -148,9 +150,9 @@ export default function NetworkCanvas() {
       .join('text')
       .attr('font-family', "'IBM Plex Mono', monospace")
       .attr('font-size', '9px')
-      .attr('fill', '#666666')
+      .attr('fill', themeConfig.linkLabelText)
       .attr('text-anchor', 'middle')
-      .attr('opacity', 0) // Hidden by default
+      .attr('opacity', showAllLabels ? 1 : 0) // Controlled by showAllLabels
       .attr('pointer-events', 'none')
       .text((d) => d.label || '');
 
@@ -169,12 +171,14 @@ export default function NetworkCanvas() {
       .on('mouseleave', function(event, d) {
         // Reset the link
         linkPaths.filter((l) => l.id === d.id)
-          .attr('stroke', '#888888')
+          .attr('stroke', themeConfig.linkStroke)
           .attr('stroke-width', 1.5)
           .attr('stroke-opacity', 0.6);
-        // Hide the label
-        linkLabels.filter((l) => l.id === d.id)
-          .attr('opacity', 0);
+        // Hide the label (unless showAllLabels is on)
+        if (!showAllLabels) {
+          linkLabels.filter((l) => l.id === d.id)
+            .attr('opacity', 0);
+        }
       });
 
     const nodeGroup = g.append('g').attr('class', 'nodes');
@@ -204,7 +208,7 @@ export default function NetworkCanvas() {
     nodeContainers.append('circle')
       .attr('r', (d) => 8 + (d.importance || 5) * 0.5)
       .attr('fill', (d) => entityColors[d.type] || entityColors.unknown)
-      .attr('stroke', (d) => d.id === selectedEntityId ? '#B8860B' : '#ffffff')
+      .attr('stroke', (d) => d.id === selectedEntityId ? '#B8860B' : themeConfig.nodeStroke)
       .attr('stroke-width', (d) => d.id === selectedEntityId ? 3 : 2)
       .attr('opacity', 0.9);
 
@@ -214,7 +218,7 @@ export default function NetworkCanvas() {
       .attr('font-family', "'Source Sans 3', sans-serif")
       .attr('font-size', '11px')
       .attr('font-weight', '500')
-      .attr('fill', '#2A2A2A')
+      .attr('fill', themeConfig.textColor)
       .text((d) => d.name);
 
     nodeContainers.on('click', (event, d) => {
@@ -268,16 +272,17 @@ export default function NetworkCanvas() {
     return () => {
       simulation.stop();
     };
-  }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath]);
+  }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath, themeConfig, showAllLabels]);
 
   if (network.entities.length === 0) {
     return (
       <div 
         ref={containerRef}
-        className="flex-1 flex items-center justify-center canvas-container"
+        className="flex-1 flex items-center justify-center canvas-container transition-colors duration-300"
+        style={{ backgroundColor: themeConfig.background }}
       >
         <div className="text-center max-w-md px-8">
-          <h2 className="font-display text-2xl text-foreground/80 mb-3">
+          <h2 className="font-display text-2xl mb-3" style={{ color: themeConfig.textColor }}>
             Begin Your Investigation
           </h2>
           <p className="text-muted-foreground text-sm leading-relaxed mb-6">
@@ -295,7 +300,11 @@ export default function NetworkCanvas() {
   }
 
   return (
-    <div ref={containerRef} className="flex-1 canvas-container relative overflow-hidden">
+    <div 
+      ref={containerRef} 
+      className="flex-1 canvas-container relative overflow-hidden transition-colors duration-300"
+      style={{ backgroundColor: themeConfig.background }}
+    >
       <svg
         ref={svgRef}
         width={dimensions.width}

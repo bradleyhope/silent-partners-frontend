@@ -15,9 +15,11 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link } from 'lucide-react';
+import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCanvasTheme, CanvasTheme } from '@/contexts/CanvasThemeContext';
 import { generateId, Entity, Relationship } from '@/lib/store';
 
 // Example networks
@@ -29,6 +31,8 @@ const EXAMPLE_NETWORKS = [
 
 export default function Sidebar() {
   const { network, dispatch, addEntitiesAndRelationships, clearNetwork } = useNetwork();
+  const { isAuthenticated } = useAuth();
+  const { theme, setTheme, showAllLabels, setShowAllLabels } = useCanvasTheme();
   const [networkOpen, setNetworkOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
@@ -52,6 +56,13 @@ export default function Sidebar() {
   const [relTarget, setRelTarget] = useState('');
   const [relType, setRelType] = useState('');
   const [relLabel, setRelLabel] = useState('');
+  
+  // PDF upload state
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
+  
+  // Save state
+  const [isSaving, setIsSaving] = useState(false);
 
   // Handle AI extraction/discovery
   const handleAiSubmit = useCallback(async () => {
@@ -249,6 +260,153 @@ export default function Sidebar() {
     toast.success('Network exported');
   }, [network]);
 
+  // Handle save to cloud
+  const handleSave = useCallback(async () => {
+    if (!isAuthenticated) {
+      toast.error('Please sign in to save networks');
+      return;
+    }
+
+    if (network.entities.length === 0) {
+      toast.error('Nothing to save - add some entities first');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await api.saveGraph({
+        name: network.title,
+        description: network.description,
+        entities: network.entities.map(e => ({
+          id: e.id,
+          name: e.name,
+          type: e.type,
+          description: e.description,
+        })),
+        relationships: network.relationships.map(r => ({
+          source: r.source,
+          target: r.target,
+          type: r.type,
+          label: r.label,
+        })),
+      });
+      toast.success('Network saved!');
+    } catch (error) {
+      console.error('Save error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save network');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [network, isAuthenticated]);
+
+  // Handle PDF upload
+  const handlePdfUpload = useCallback(async (file: File) => {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error('Please upload a PDF file');
+      return;
+    }
+
+    setIsProcessing(true);
+    setUploadProgress('Uploading PDF...');
+
+    try {
+      // Start the upload job
+      const { job_id } = await api.uploadPdf(file);
+      setUploadProgress('Processing document...');
+
+      // Poll for job completion
+      let attempts = 0;
+      const maxAttempts = 60; // 5 minutes max
+      
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+        const status = await api.getJobStatus(job_id);
+        
+        if (status.status === 'completed' && status.result) {
+          // Process the result
+          const result = status.result;
+          
+          if (result.entities.length === 0) {
+            toast.warning('No entities found in the PDF');
+            return;
+          }
+
+          // Convert API response to our format
+          const apiIdToOurId = new Map<string, string>();
+          
+          const entities: Entity[] = result.entities.map((e) => {
+            const ourId = generateId();
+            if (e.id) apiIdToOurId.set(e.id, ourId);
+            apiIdToOurId.set(e.name.toLowerCase(), ourId);
+            
+            return {
+              id: ourId,
+              name: e.name,
+              type: (e.type?.toLowerCase() || 'organization') as Entity['type'],
+              description: e.description,
+              importance: e.importance || 5,
+            };
+          });
+
+          const relationships: Relationship[] = result.relationships
+            .map((r) => {
+              const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase());
+              const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase());
+              
+              if (!sourceId || !targetId) return null;
+              
+              return {
+                id: generateId(),
+                source: sourceId,
+                target: targetId,
+                type: r.type,
+                label: r.label,
+              } as Relationship;
+            })
+            .filter((r): r is Relationship => r !== null);
+
+          if (aiMode === 'new') clearNetwork();
+          addEntitiesAndRelationships(entities, relationships);
+          
+          toast.success(`Extracted ${entities.length} entities and ${relationships.length} connections from PDF`);
+          return;
+        } else if (status.status === 'failed') {
+          throw new Error(status.message || 'PDF processing failed');
+        }
+        
+        setUploadProgress(`Processing... ${status.stage || ''}`);
+        attempts++;
+      }
+      
+      throw new Error('PDF processing timed out');
+    } catch (error) {
+      console.error('PDF upload error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to process PDF');
+    } finally {
+      setIsProcessing(false);
+      setUploadProgress(null);
+    }
+  }, [aiMode, addEntitiesAndRelationships, clearNetwork]);
+
+  // Handle drag and drop
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files[0];
+    if (file) handlePdfUpload(file);
+  }, [handlePdfUpload]);
+
   // Add entity manually
   const handleAddEntity = useCallback(() => {
     if (!entityName.trim()) {
@@ -364,8 +522,19 @@ export default function Sidebar() {
           </div>
 
           <div className="flex gap-2 pt-1">
-            <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" disabled>
-              <Save className="w-3 h-3 mr-1" /> Save
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="flex-1 h-7 text-xs" 
+              onClick={handleSave}
+              disabled={isSaving || network.entities.length === 0}
+            >
+              {isSaving ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Save className="w-3 h-3 mr-1" />
+              )}
+              Save
             </Button>
             <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" disabled>
               <Share2 className="w-3 h-3 mr-1" /> Share
@@ -419,6 +588,44 @@ export default function Sidebar() {
               <Label htmlFor="new" className="text-xs text-muted-foreground cursor-pointer">Start new</Label>
             </div>
           </RadioGroup>
+
+          {/* PDF Upload Drop Zone */}
+          <div className="pt-2 border-t border-border">
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
+                isDragging 
+                  ? 'border-primary bg-primary/5' 
+                  : 'border-border hover:border-muted-foreground/50'
+              }`}
+            >
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handlePdfUpload(file);
+                }}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                disabled={isProcessing}
+              />
+              {uploadProgress ? (
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  <span className="text-xs text-muted-foreground">{uploadProgress}</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <FileText className="w-6 h-6 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    Drop PDF here or click to upload
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
         </CollapsibleContent>
       </Collapsible>
 
@@ -534,7 +741,7 @@ export default function Sidebar() {
           {/* Theme selector */}
           <div className="space-y-2">
             <Label className="text-xs font-medium">Theme</Label>
-            <Select defaultValue="classic">
+            <Select value={theme} onValueChange={(v) => setTheme(v as CanvasTheme)}>
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue placeholder="Select theme" />
               </SelectTrigger>
@@ -549,7 +756,12 @@ export default function Sidebar() {
           {/* Show labels toggle */}
           <div className="flex items-center justify-between">
             <Label className="text-xs font-medium">Show All Labels</Label>
-            <input type="checkbox" className="w-4 h-4 rounded border-border" />
+            <input 
+              type="checkbox" 
+              className="w-4 h-4 rounded border-border cursor-pointer" 
+              checked={showAllLabels}
+              onChange={(e) => setShowAllLabels(e.target.checked)}
+            />
           </div>
 
           {/* Entity type legend */}

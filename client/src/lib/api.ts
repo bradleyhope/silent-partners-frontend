@@ -161,6 +161,30 @@ class ApiClient {
     return result;
   }
 
+  // PDF upload (async job)
+  async uploadPdf(file: File): Promise<{ job_id: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const headers: HeadersInit = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(`${API_BASE}/jobs/upload-pdf`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(error.error || `HTTP ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   // Graph persistence
   async saveGraph(network: {
     name: string;
