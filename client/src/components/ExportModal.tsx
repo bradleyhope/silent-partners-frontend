@@ -44,7 +44,14 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const { theme } = useCanvasTheme();
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [format, setFormat] = useState('twitter');
+  // Default to 8K for large networks (100+ entities), 4K for medium (50+), Twitter for small
+  const getDefaultFormat = () => {
+    const entityCount = network.entities.length;
+    if (entityCount > 100) return '8k';
+    if (entityCount > 50) return '4k';
+    return 'twitter';
+  };
+  const [format, setFormat] = useState(getDefaultFormat());
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [showLabels, setShowLabels] = useState(true);
@@ -205,14 +212,23 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     });
     ctx.globalAlpha = 1;
 
-    // Draw nodes
-    const radius = Math.max(3, width * 0.003);
-    const fontSize = Math.max(8, width * 0.007);
+    // Calculate dynamic sizes based on resolution and network complexity
+    const nodeCount = nodes.length;
+    const resolutionFactor = width / 1920; // Normalize to HD as baseline
+    
+    // For 8K exports (7680px), this gives much larger readable labels
+    const baseRadius = Math.max(8, width * 0.008 * Math.max(1, resolutionFactor * 0.5));
+    const fontSize = Math.max(14, width * 0.01 * Math.max(1, resolutionFactor * 0.6));
+    
+    // Collect label positions for collision detection
+    const labelPositions: { x: number; y: number; width: number }[] = [];
     
     nodes.forEach((node: any) => {
       const x = node.x * networkScale + translateX;
       const y = node.y * networkScale + translateY;
       const color = entityColors[node.type as keyof typeof entityColors] || entityColors.default;
+      
+      const radius = baseRadius * (0.7 + (node.importance || 0.5) * 0.6);
       
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -234,14 +250,27 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         ctx.fill();
       }
 
-      // Draw label
-      if (showLabels) {
-        ctx.fillStyle = textColor;
+      // Draw label with collision detection
+      if (showLabels && node.name) {
+        const label = node.name;
         ctx.font = `${fontSize}px "Inter", sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.globalAlpha = 0.85;
-        ctx.fillText(node.name, x + radius + 3, y + fontSize * 0.35);
-        ctx.globalAlpha = 1;
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+        
+        // Simple collision avoidance - offset if overlapping
+        let labelY = y + baseRadius + fontSize + 4;
+        const labelWidth = ctx.measureText(label).width;
+        
+        // Check for overlaps with existing labels
+        for (const pos of labelPositions) {
+          if (Math.abs(x - pos.x) < (labelWidth + pos.width) / 2 + 10 &&
+              Math.abs(labelY - pos.y) < fontSize + 4) {
+            labelY = pos.y + fontSize + 4;
+          }
+        }
+        
+        labelPositions.push({ x, y: labelY, width: labelWidth });
+        ctx.fillText(label, x, labelY);
       }
     });
 
