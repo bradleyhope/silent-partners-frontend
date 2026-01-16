@@ -441,6 +441,7 @@ export default function NetworkCanvas() {
 
   return (
     <div 
+      id="network-canvas"
       ref={containerRef} 
       className={`flex-1 relative overflow-hidden transition-colors duration-300 ${showDotPattern ? 'canvas-container' : ''}`}
       style={{ backgroundColor: themeConfig.background }}

@@ -7,11 +7,14 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { CanvasThemeProvider } from "./contexts/CanvasThemeContext";
 import Home from "./pages/Home";
+import ShareView from "./pages/ShareView";
 
 function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path="/share" component={ShareView} />
+      <Route path="/share/:id" component={ShareView} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>

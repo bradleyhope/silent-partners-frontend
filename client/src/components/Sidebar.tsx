@@ -15,7 +15,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText, Search, X } from 'lucide-react';
+import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText, Search, X, Trash2, Sparkles, Wand2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,6 +23,7 @@ import { useCanvasTheme, CanvasTheme } from '@/contexts/CanvasThemeContext';
 import { generateId, Entity, Relationship } from '@/lib/store';
 import { useMobileSidebar } from '@/contexts/MobileSidebarContext';
 import { extractTextFromPdf, isPdfFile } from '@/lib/pdf-utils';
+import pako from 'pako';
 
 // Example networks
 const EXAMPLE_NETWORKS = [
@@ -78,6 +79,13 @@ export default function Sidebar() {
   
   // Save state
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Tools section state
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [isRemovingOrphans, setIsRemovingOrphans] = useState(false);
+  const [isFindingLinks, setIsFindingLinks] = useState(false);
+  const [isEnrichingAll, setIsEnrichingAll] = useState(false);
+  const [toolPrompt, setToolPrompt] = useState('');
 
   // Handle AI extraction/discovery
   const handleAiSubmit = useCallback(async () => {
@@ -281,8 +289,9 @@ export default function Sidebar() {
 
   // Export network as SVG
   const handleExportSvg = useCallback(() => {
-    const svg = document.querySelector('#network-canvas svg');
-    if (!svg) {
+    const container = document.querySelector('#network-canvas');
+    const svg = container?.querySelector('svg');
+    if (!svg || !container) {
       toast.error('No network to export');
       return;
     }
@@ -293,6 +302,16 @@ export default function Sidebar() {
     // Add XML declaration and namespace
     svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    
+    // Get background color from container
+    const bgColor = window.getComputedStyle(container).backgroundColor || '#F5F0E6';
+    
+    // Add background rect as first child
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bgRect.setAttribute('width', '100%');
+    bgRect.setAttribute('height', '100%');
+    bgRect.setAttribute('fill', bgColor);
+    svgClone.insertBefore(bgRect, svgClone.firstChild);
     
     const svgData = new XMLSerializer().serializeToString(svgClone);
     const blob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
@@ -308,8 +327,9 @@ export default function Sidebar() {
 
   // Export network as PNG
   const handleExportPng = useCallback(() => {
-    const svg = document.querySelector('#network-canvas svg');
-    if (!svg) {
+    const container = document.querySelector('#network-canvas');
+    const svg = container?.querySelector('svg');
+    if (!svg || !container) {
       toast.error('No network to export');
       return;
     }
@@ -317,12 +337,24 @@ export default function Sidebar() {
     // Clone and prepare SVG
     const svgClone = svg.cloneNode(true) as SVGSVGElement;
     svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svgClone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    
+    // Get background color from container
+    const bgColor = window.getComputedStyle(container).backgroundColor || '#F5F0E6';
+    
+    // Add background rect as first child
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bgRect.setAttribute('width', '100%');
+    bgRect.setAttribute('height', '100%');
+    bgRect.setAttribute('fill', bgColor);
+    svgClone.insertBefore(bgRect, svgClone.firstChild);
     
     const svgData = new XMLSerializer().serializeToString(svgClone);
     const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(svgBlob);
     
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const scale = 2; // Higher resolution
@@ -331,6 +363,9 @@ export default function Sidebar() {
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        // Fill background first
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0);
         
@@ -346,6 +381,10 @@ export default function Sidebar() {
           }
         }, 'image/png');
       }
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      toast.error('Failed to export PNG. Try SVG export instead.');
       URL.revokeObjectURL(url);
     };
     img.src = url;
@@ -445,7 +484,7 @@ export default function Sidebar() {
         await navigator.clipboard.writeText(share_url);
         toast.success('Share link copied to clipboard!');
       } else {
-        // Share as JSON data URL - encode network data and copy as shareable link
+        // Share as compressed JSON data URL - encode network data and copy as shareable link
         const networkData = {
           title: network.title || 'Untitled Network',
           description: network.description,
@@ -453,8 +492,10 @@ export default function Sidebar() {
           relationships: network.relationships,
         };
         const jsonString = JSON.stringify(networkData);
-        const base64Data = btoa(encodeURIComponent(jsonString));
-        const shareUrl = `${window.location.origin}?data=${base64Data}`;
+        // Compress with pako for smaller URLs
+        const compressed = pako.deflate(jsonString);
+        const base64Data = btoa(String.fromCharCode(...compressed));
+        const shareUrl = `${window.location.origin}/share?data=${encodeURIComponent(base64Data)}`;
         
         // If URL is too long, fall back to downloading JSON
         if (shareUrl.length > 2000) {
@@ -664,6 +705,242 @@ export default function Sidebar() {
     setRelType('');
     setRelLabel('');
   }, [relSource, relTarget, relType, relLabel, network.entities, network.relationships, dispatch]);
+
+  // Tool: Remove orphan nodes (entities with no connections)
+  const handleRemoveOrphans = useCallback(() => {
+    const connectedIds = new Set<string>();
+    network.relationships.forEach(r => {
+      connectedIds.add(r.source);
+      connectedIds.add(r.target);
+    });
+    
+    const orphans = network.entities.filter(e => !connectedIds.has(e.id));
+    
+    if (orphans.length === 0) {
+      toast.info('No orphan nodes found - all entities are connected');
+      return;
+    }
+    
+    setIsRemovingOrphans(true);
+    orphans.forEach(orphan => {
+      dispatch({ type: 'DELETE_ENTITY', payload: orphan.id });
+    });
+    setIsRemovingOrphans(false);
+    toast.success(`Removed ${orphans.length} orphan node${orphans.length > 1 ? 's' : ''}`);
+  }, [network.entities, network.relationships, dispatch]);
+
+  // Tool: Find missing links using AI
+  const handleFindMissingLinks = useCallback(async () => {
+    if (network.entities.length < 2) {
+      toast.error('Need at least 2 entities to find missing links');
+      return;
+    }
+    
+    setIsFindingLinks(true);
+    toast.info('Analyzing network for missing connections...');
+    
+    try {
+      const result = await api.infer(
+        network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
+        network.relationships.map(r => ({ source: r.source, target: r.target }))
+      );
+      
+      if (!result.inferred_relationships || result.inferred_relationships.length === 0) {
+        toast.info('No additional connections found');
+        return;
+      }
+      
+      // Add inferred relationships
+      const newRelationships: Relationship[] = result.inferred_relationships
+        .filter(ir => ir.confidence > 0.5) // Only high confidence
+        .map(ir => ({
+          id: generateId(),
+          source: ir.source,
+          target: ir.target,
+          type: ir.type,
+          label: ir.description || ir.type,
+        }));
+      
+      if (newRelationships.length > 0) {
+        addEntitiesAndRelationships([], newRelationships);
+        toast.success(`Found ${newRelationships.length} missing connection${newRelationships.length > 1 ? 's' : ''}`);
+      } else {
+        toast.info('No high-confidence connections found');
+      }
+    } catch (error) {
+      console.error('Find links error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to find missing links');
+    } finally {
+      setIsFindingLinks(false);
+    }
+  }, [network.entities, network.relationships, addEntitiesAndRelationships]);
+
+  // Tool: Enrich all entities
+  const handleEnrichAll = useCallback(async () => {
+    if (network.entities.length === 0) {
+      toast.error('No entities to enrich');
+      return;
+    }
+    
+    setIsEnrichingAll(true);
+    toast.info(`Enriching ${network.entities.length} entities...`);
+    
+    let enrichedCount = 0;
+    let newEntities: Entity[] = [];
+    let newRelationships: Relationship[] = [];
+    
+    try {
+      for (const entity of network.entities.slice(0, 10)) { // Limit to 10 to avoid rate limits
+        try {
+          const result = await api.enrichEntity(entity.name, entity.type);
+          
+          if (result.enriched) {
+            // Update entity description
+            const enrichedDescription = [
+              result.enriched.description,
+              result.enriched.key_facts?.length > 0 
+                ? `Key facts: ${result.enriched.key_facts.join('; ')}`
+                : null
+            ].filter(Boolean).join('\n\n');
+            
+            dispatch({
+              type: 'UPDATE_ENTITY',
+              payload: { id: entity.id, updates: { description: enrichedDescription } }
+            });
+            enrichedCount++;
+            
+            // Add suggested connections
+            if (result.enriched.connections_suggested?.length > 0) {
+              for (const suggestion of result.enriched.connections_suggested) {
+                const existingEntity = network.entities.find(
+                  e => e.name.toLowerCase() === suggestion.name.toLowerCase()
+                );
+                
+                if (!existingEntity) {
+                  const newId = generateId();
+                  newEntities.push({
+                    id: newId,
+                    name: suggestion.name,
+                    type: 'person',
+                    description: `Suggested connection to ${entity.name}`,
+                    importance: 5,
+                  });
+                  newRelationships.push({
+                    id: generateId(),
+                    source: entity.id,
+                    target: newId,
+                    type: suggestion.relationship,
+                    label: suggestion.relationship,
+                  });
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn(`Failed to enrich ${entity.name}:`, e);
+        }
+      }
+      
+      if (newEntities.length > 0 || newRelationships.length > 0) {
+        addEntitiesAndRelationships(newEntities, newRelationships);
+      }
+      
+      toast.success(`Enriched ${enrichedCount} entities, added ${newEntities.length} new entities`);
+    } catch (error) {
+      console.error('Enrich all error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to enrich entities');
+    } finally {
+      setIsEnrichingAll(false);
+    }
+  }, [network.entities, dispatch, addEntitiesAndRelationships]);
+
+  // Tool: Custom prompt to modify graph
+  const handleToolPrompt = useCallback(async () => {
+    if (!toolPrompt.trim()) {
+      toast.error('Please enter a prompt');
+      return;
+    }
+    
+    setIsProcessing(true);
+    toast.info('Processing your request...');
+    
+    try {
+      // Build context from current network
+      const context = `Current network has ${network.entities.length} entities: ${network.entities.map(e => `${e.name} (${e.type})`).join(', ')}. ` +
+        `And ${network.relationships.length} relationships. ` +
+        `User request: ${toolPrompt}`;
+      
+      const result = await api.extract(context, 'gpt-5');
+      
+      if (result.entities.length === 0 && result.relationships.length === 0) {
+        toast.warning('No changes suggested. Try a more specific prompt.');
+        return;
+      }
+      
+      // Map API IDs to our IDs
+      const apiIdToOurId = new Map<string, string>();
+      
+      const entities: Entity[] = result.entities.map((e) => {
+        const existingEntity = network.entities.find(
+          existing => existing.name.toLowerCase() === e.name.toLowerCase()
+        );
+        
+        if (existingEntity) {
+          apiIdToOurId.set(e.id, existingEntity.id);
+          return null;
+        }
+        
+        const ourId = generateId();
+        apiIdToOurId.set(e.id, ourId);
+        
+        return {
+          id: ourId,
+          name: e.name,
+          type: (e.type?.toLowerCase() || 'person') as Entity['type'],
+          description: e.description,
+          importance: e.importance || 5,
+        };
+      }).filter((e): e is Entity => e !== null);
+      
+      const relationships: Relationship[] = result.relationships
+        .map((r) => {
+          const sourceId = apiIdToOurId.get(r.source);
+          const targetId = apiIdToOurId.get(r.target);
+          
+          if (!sourceId || !targetId) return null;
+          
+          // Check if relationship already exists
+          const exists = network.relationships.some(
+            existing => (existing.source === sourceId && existing.target === targetId) ||
+                       (existing.source === targetId && existing.target === sourceId)
+          );
+          if (exists) return null;
+          
+          return {
+            id: generateId(),
+            source: sourceId,
+            target: targetId,
+            type: r.type,
+            label: r.label || r.type,
+          } as Relationship;
+        })
+        .filter((r): r is Relationship => r !== null);
+      
+      addEntitiesAndRelationships(entities, relationships);
+      toast.success(`Added ${entities.length} entities and ${relationships.length} connections`);
+      setToolPrompt('');
+    } catch (error) {
+      console.error('Tool prompt error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to process prompt');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [toolPrompt, network.entities, network.relationships, addEntitiesAndRelationships]);
+
+  // Count orphan nodes
+  const orphanCount = network.entities.filter(e => {
+    return !network.relationships.some(r => r.source === e.id || r.target === e.id);
+  }).length;
 
   return (
     <>
@@ -973,6 +1250,100 @@ export default function Sidebar() {
               </Button>
             </div>
           )}
+        </CollapsibleContent>
+      </Collapsible>
+
+      <div className="border-t border-sidebar-border" />
+
+      {/* Tools Section */}
+      <Collapsible open={toolsOpen} onOpenChange={setToolsOpen}>
+        <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-sidebar-accent/50 transition-colors">
+          <span className="section-header mb-0 border-0 pb-0">Tools</span>
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${toolsOpen ? '' : '-rotate-90'}`} />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-4 pb-4 space-y-3">
+          {/* Remove Orphans */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full h-8 text-xs justify-start"
+            onClick={handleRemoveOrphans}
+            disabled={isRemovingOrphans || network.entities.length === 0}
+          >
+            {isRemovingOrphans ? (
+              <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+            ) : (
+              <Trash2 className="w-3 h-3 mr-2" />
+            )}
+            Remove Orphan Nodes
+            {orphanCount > 0 && (
+              <span className="ml-auto bg-amber-500/20 text-amber-700 px-1.5 py-0.5 rounded text-[10px]">
+                {orphanCount}
+              </span>
+            )}
+          </Button>
+
+          {/* Find Missing Links */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full h-8 text-xs justify-start"
+            onClick={handleFindMissingLinks}
+            disabled={isFindingLinks || network.entities.length < 2}
+          >
+            {isFindingLinks ? (
+              <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3 h-3 mr-2" />
+            )}
+            Find Missing Links
+          </Button>
+
+          {/* Enrich All */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full h-8 text-xs justify-start"
+            onClick={handleEnrichAll}
+            disabled={isEnrichingAll || network.entities.length === 0}
+          >
+            {isEnrichingAll ? (
+              <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+            ) : (
+              <Sparkles className="w-3 h-3 mr-2" />
+            )}
+            Enrich All Entities
+            {network.entities.length > 10 && (
+              <span className="ml-auto text-[10px] text-muted-foreground">(first 10)</span>
+            )}
+          </Button>
+
+          {/* Custom Prompt */}
+          <div className="pt-2 border-t border-border space-y-2">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Wand2 className="w-3 h-3" /> Custom Prompt
+            </div>
+            <Textarea
+              value={toolPrompt}
+              onChange={(e) => setToolPrompt(e.target.value)}
+              placeholder="Describe what you want to add or change..."
+              className="text-xs bg-background resize-none min-h-[60px]"
+              disabled={isProcessing}
+            />
+            <Button
+              size="sm"
+              className="w-full h-7 text-xs"
+              onClick={handleToolPrompt}
+              disabled={isProcessing || !toolPrompt.trim()}
+            >
+              {isProcessing ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Wand2 className="w-3 h-3 mr-1" />
+              )}
+              Apply
+            </Button>
+          </div>
         </CollapsibleContent>
       </Collapsible>
 
