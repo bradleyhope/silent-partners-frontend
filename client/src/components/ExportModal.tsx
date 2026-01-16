@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Copy, Image } from 'lucide-react';
+import { Download, Copy } from 'lucide-react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
 import { entityColors } from '@/lib/store';
@@ -68,6 +68,14 @@ interface ExportModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+interface NodePosition {
+  id: string;
+  name: string;
+  type: string;
+  x: number;
+  y: number;
+}
+
 export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const { network } = useNetwork();
   const { theme } = useCanvasTheme();
@@ -80,7 +88,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [showLegend, setShowLegend] = useState(true);
   const [showWatermark, setShowWatermark] = useState(true);
   const [watermarkText, setWatermarkText] = useState('Made with Silent Partners');
-  const [isRendering, setIsRendering] = useState(false);
+  const [viewMode, setViewMode] = useState<'full' | 'current'>('full');
 
   // Initialize title from network
   useEffect(() => {
@@ -90,59 +98,35 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, network.title, network.description]);
 
-  // Get node positions from global state or calculate from entities
-  const getNetworkState = useCallback(() => {
+  // Get node positions from global state
+  const getNodes = useCallback((): NodePosition[] => {
     const globalState = (window as any).__SILENT_PARTNERS_STATE__;
-    
-    if (globalState && globalState.nodes && globalState.nodes.length > 0) {
-      return {
-        nodes: globalState.getNodePositions(),
-        links: globalState.links || [],
-      };
+    if (globalState && typeof globalState.getNodePositions === 'function') {
+      return globalState.getNodePositions();
     }
-    
-    // Fallback: use entity positions from network context
-    return {
-      nodes: network.entities.map(e => ({
-        id: e.id,
-        name: e.name,
-        type: e.type,
-        x: e.x ?? 0,
-        y: e.y ?? 0,
-      })),
-      links: network.relationships.map(r => ({
-        source: r.source,
-        target: r.target,
-        label: r.label,
-        status: r.status,
-      })),
-    };
-  }, [network.entities, network.relationships]);
+    // Fallback to network entities
+    return network.entities.map((e, i) => ({
+      id: e.id,
+      name: e.name,
+      type: e.type,
+      x: e.x ?? (100 + (i % 10) * 50),
+      y: e.y ?? (100 + Math.floor(i / 10) * 50),
+    }));
+  }, [network.entities]);
 
-  // Calculate network bounds
-  const getNetworkBounds = useCallback((nodes: any[]) => {
-    if (!nodes || nodes.length === 0) {
-      return { minX: 0, minY: 0, maxX: 100, maxY: 100, width: 100, height: 100 };
+  // Get links from global state or network
+  const getLinks = useCallback(() => {
+    const globalState = (window as any).__SILENT_PARTNERS_STATE__;
+    if (globalState && globalState.links) {
+      return globalState.links;
     }
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(node => {
-      if (node.x < minX) minX = node.x;
-      if (node.y < minY) minY = node.y;
-      if (node.x > maxX) maxX = node.x;
-      if (node.y > maxY) maxY = node.y;
-    });
-
-    const labelPadding = 100;
-    return {
-      minX: minX - labelPadding,
-      minY: minY - labelPadding,
-      maxX: maxX + labelPadding,
-      maxY: maxY + labelPadding,
-      width: (maxX - minX + labelPadding * 2) || 100,
-      height: (maxY - minY + labelPadding * 2) || 100,
-    };
-  }, []);
+    return network.relationships.map(r => ({
+      source: r.sourceId,
+      target: r.targetId,
+      type: r.type,
+      status: r.status,
+    }));
+  }, [network.relationships]);
 
   // Render to canvas
   const renderToCanvas = useCallback((canvas: HTMLCanvasElement, isExport: boolean = false) => {
@@ -156,22 +140,22 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    
+
     ctx.scale(scale, scale);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
 
     // Get theme colors
-    const themeKey = theme as keyof typeof EXPORT_THEMES;
-    const colors = EXPORT_THEMES[themeKey] || EXPORT_THEMES.default;
+    const themeKey = theme === 'lombardi' ? 'lombardi' : theme === 'dark' ? 'dark' : 'default';
+    const colors = EXPORT_THEMES[themeKey];
 
     // Background
     ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
 
-    // Get network state
-    const state = getNetworkState();
-    if (!state.nodes || state.nodes.length === 0) {
+    // Get network data
+    const nodes = getNodes();
+    const links = getLinks();
+    
+    if (nodes.length === 0) {
       ctx.fillStyle = colors.textLight;
       ctx.font = '24px Georgia, serif';
       ctx.textAlign = 'center';
@@ -179,57 +163,68 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       return;
     }
 
-    // Calculate layout areas - give more space to the network
-    const padding = width * 0.03;
-    const headerHeight = title ? height * 0.1 : height * 0.02;
-    const legendHeight = showLegend ? height * 0.06 : 0;
-    const watermarkHeight = showWatermark ? height * 0.03 : 0;
+    // Calculate layout areas
+    const padding = Math.max(30, width * 0.025);
+    const titleHeight = title ? Math.max(50, height * 0.08) : 0;
+    const subtitleHeight = subtitle ? Math.max(30, height * 0.04) : 0;
+    const legendHeight = showLegend ? Math.max(35, height * 0.05) : 0;
+    const watermarkHeight = showWatermark ? Math.max(25, height * 0.035) : 0;
     
-    const networkArea = {
-      x: padding,
-      y: headerHeight,
-      width: width - padding * 2,
-      height: height - headerHeight - legendHeight - watermarkHeight,
-    };
+    const graphTop = padding + titleHeight + subtitleHeight;
+    const graphBottom = height - padding - legendHeight - watermarkHeight;
+    const graphLeft = padding;
+    const graphRight = width - padding;
+    const graphWidth = graphRight - graphLeft;
+    const graphHeight = graphBottom - graphTop;
+
+    // Calculate network bounds
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(node => {
+      if (node.x < minX) minX = node.x;
+      if (node.x > maxX) maxX = node.x;
+      if (node.y < minY) minY = node.y;
+      if (node.y > maxY) maxY = node.y;
+    });
+    
+    const networkWidth = maxX - minX || 100;
+    const networkHeight = maxY - minY || 100;
+    
+    // Calculate scale to fit network in graph area with padding
+    const scaleX = graphWidth / (networkWidth * 1.1);
+    const scaleY = graphHeight / (networkHeight * 1.1);
+    const networkScale = Math.min(scaleX, scaleY);
+    
+    // Calculate translation to center network
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const translateX = graphLeft + graphWidth / 2 - centerX * networkScale;
+    const translateY = graphTop + graphHeight / 2 - centerY * networkScale;
 
     // Draw title
     if (title) {
       ctx.fillStyle = colors.text;
-      const titleSize = Math.min(width * 0.04, 48);
-      ctx.font = `bold ${titleSize}px "Crimson Text", Georgia, serif`;
+      ctx.font = `bold ${Math.max(24, width * 0.025)}px Georgia, serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(title, width / 2, headerHeight * 0.45);
-      
-      if (subtitle) {
-        ctx.fillStyle = colors.textLight;
-        const subtitleSize = Math.min(width * 0.016, 20);
-        ctx.font = `${subtitleSize}px "Inter", sans-serif`;
-        const maxSubtitleWidth = width * 0.9;
-        const truncatedSubtitle = subtitle.length > 140 ? subtitle.substring(0, 137) + '...' : subtitle;
-        ctx.fillText(truncatedSubtitle, width / 2, headerHeight * 0.78);
-      }
+      ctx.fillText(title, width / 2, padding + titleHeight * 0.65);
     }
 
-    // Calculate network bounds and scale to fit - use more of the available space
-    const bounds = getNetworkBounds(state.nodes);
-    const networkScale = Math.min(
-      networkArea.width / bounds.width,
-      networkArea.height / bounds.height
-    ) * 0.95; // Use 95% of available space
-
-    const centerX = bounds.minX + bounds.width / 2;
-    const centerY = bounds.minY + bounds.height / 2;
-    const translateX = networkArea.x + networkArea.width / 2 - centerX * networkScale;
-    const translateY = networkArea.y + networkArea.height / 2 - centerY * networkScale;
+    // Draw subtitle
+    if (subtitle) {
+      ctx.fillStyle = colors.textLight;
+      ctx.font = `${Math.max(14, width * 0.012)}px "Inter", sans-serif`;
+      ctx.textAlign = 'center';
+      const maxSubtitleWidth = width - padding * 2;
+      const truncatedSubtitle = subtitle.length > 120 ? subtitle.slice(0, 117) + '...' : subtitle;
+      ctx.fillText(truncatedSubtitle, width / 2, padding + titleHeight + subtitleHeight * 0.5);
+    }
 
     // Create node map for link drawing
-    const nodeMap = new Map(state.nodes.map((n: any) => [n.id, n]));
+    const nodeMap = new Map<string, NodePosition>();
+    nodes.forEach(node => nodeMap.set(node.id, node));
 
     // Draw links
-    const lineWidth = Math.max(0.8, width * 0.0008);
-    ctx.lineWidth = lineWidth;
-
-    state.links.forEach((link: any) => {
+    ctx.lineWidth = Math.max(0.5, width * 0.0005);
+    links.forEach((link: any) => {
       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
       const targetId = typeof link.target === 'object' ? link.target.id : link.target;
       const source = nodeMap.get(sourceId);
@@ -241,7 +236,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       const ex = target.x * networkScale + translateX;
       const ey = target.y * networkScale + translateY;
 
-      // Calculate curve control point
+      // Calculate curve
       const dx = ex - sx;
       const dy = ey - sy;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -256,7 +251,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
       ctx.beginPath();
       ctx.strokeStyle = colors.linkStroke;
-      ctx.globalAlpha = 0.5;
+      ctx.globalAlpha = 0.4;
       
       if (link.status === 'suspected') {
         ctx.setLineDash([4, 4]);
@@ -279,23 +274,30 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const baseRadius = Math.max(3, width * 0.004);
     const fontSize = Math.max(8, width * 0.007);
 
-    state.nodes.forEach((node: any) => {
+    nodes.forEach(node => {
       const x = node.x * networkScale + translateX;
       const y = node.y * networkScale + translateY;
-      const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(node.type);
-      const radius = isLombardi ? (isHollow ? baseRadius * 1.4 : baseRadius * 0.7) : baseRadius;
+      const color = entityColors[node.type as keyof typeof entityColors] || entityColors.unknown;
+      const radius = baseRadius;
 
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
-      
+
       if (isLombardi) {
-        ctx.fillStyle = isHollow ? colors.background : colors.nodeStroke;
-        ctx.strokeStyle = colors.nodeStroke;
-        ctx.lineWidth = isHollow ? 1 : 0;
-        ctx.fill();
-        if (isHollow) ctx.stroke();
+        // Lombardi style: hollow for orgs, solid for people
+        const isOrg = ['organization', 'corporation', 'government', 'financial'].includes(node.type);
+        if (isOrg) {
+          ctx.strokeStyle = colors.nodeStroke;
+          ctx.lineWidth = Math.max(1, width * 0.001);
+          ctx.fillStyle = colors.nodeFill;
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = colors.nodeStroke;
+          ctx.fill();
+        }
       } else {
-        ctx.fillStyle = entityColors[node.type as keyof typeof entityColors] || entityColors.unknown;
+        ctx.fillStyle = color;
         ctx.fill();
       }
 
@@ -304,7 +306,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         ctx.fillStyle = colors.text;
         ctx.font = `${fontSize}px "Inter", sans-serif`;
         ctx.textAlign = 'left';
-        ctx.globalAlpha = 0.9;
+        ctx.globalAlpha = 0.85;
         ctx.fillText(node.name, x + radius + 3, y + fontSize * 0.35);
         ctx.globalAlpha = 1;
       }
@@ -349,19 +351,18 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.fillText(watermarkText, width / 2, height - watermarkHeight * 0.35);
       ctx.globalAlpha = 1;
     }
-  }, [format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, getNetworkState, getNetworkBounds]);
+  }, [format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, getNodes, getLinks]);
 
   // Render preview when modal opens or options change
   useEffect(() => {
     if (open && canvasRef.current) {
-      setIsRendering(true);
-      // Small delay to ensure DOM is ready
-      setTimeout(() => {
+      // Delay to ensure DOM and state are ready
+      const timer = setTimeout(() => {
         if (canvasRef.current) {
           renderToCanvas(canvasRef.current, false);
         }
-        setIsRendering(false);
-      }, 150);
+      }, 200);
+      return () => clearTimeout(timer);
     }
   }, [open, format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, renderToCanvas]);
 
@@ -409,29 +410,28 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Image className="h-5 w-5" />
-            Create Artwork
+            <span>Create Artwork</span>
           </DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-6">
           {/* Options */}
           <div className="space-y-4">
-            <div>
+            <div className="space-y-2">
               <Label>Format</Label>
               <Select value={format} onValueChange={setFormat}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(EXPORT_FORMATS).map(([key, fmt]) => (
-                    <SelectItem key={key} value={key}>{fmt.label}</SelectItem>
+                  {Object.entries(EXPORT_FORMATS).map(([key, config]) => (
+                    <SelectItem key={key} value={key}>{config.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label>Title</Label>
               <Input
                 value={title}
@@ -440,7 +440,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label>Subtitle</Label>
               <Input
                 value={subtitle}
@@ -449,36 +449,36 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label>Display Options</Label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center space-x-2">
                 <Checkbox
                   id="show-labels"
                   checked={showLabels}
-                  onCheckedChange={(c) => setShowLabels(!!c)}
+                  onCheckedChange={(checked) => setShowLabels(checked === true)}
                 />
-                <label htmlFor="show-labels" className="text-sm">Show Labels</label>
+                <Label htmlFor="show-labels" className="font-normal">Show Labels</Label>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center space-x-2">
                 <Checkbox
                   id="show-legend"
                   checked={showLegend}
-                  onCheckedChange={(c) => setShowLegend(!!c)}
+                  onCheckedChange={(checked) => setShowLegend(checked === true)}
                 />
-                <label htmlFor="show-legend" className="text-sm">Show Legend</label>
+                <Label htmlFor="show-legend" className="font-normal">Show Legend</Label>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center space-x-2">
                 <Checkbox
                   id="show-watermark"
                   checked={showWatermark}
-                  onCheckedChange={(c) => setShowWatermark(!!c)}
+                  onCheckedChange={(checked) => setShowWatermark(checked === true)}
                 />
-                <label htmlFor="show-watermark" className="text-sm">Show Watermark</label>
+                <Label htmlFor="show-watermark" className="font-normal">Show Watermark</Label>
               </div>
             </div>
 
             {showWatermark && (
-              <div>
+              <div className="space-y-2">
                 <Label>Watermark Text</Label>
                 <Input
                   value={watermarkText}
@@ -490,41 +490,38 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           </div>
 
           {/* Preview */}
-          <div className="space-y-4">
+          <div className="space-y-3">
             <Label>Preview</Label>
             <div 
-              className="border rounded-lg overflow-hidden bg-muted flex items-center justify-center"
-              style={{ minHeight: 300 }}
+              className="border rounded-lg bg-muted/30 flex items-center justify-center overflow-hidden"
+              style={{ 
+                width: formatConfig.width * previewScale,
+                height: formatConfig.height * previewScale,
+              }}
             >
-              {isRendering ? (
-                <div className="text-muted-foreground text-sm">Rendering...</div>
-              ) : (
-                <canvas
-                  ref={canvasRef}
-                  style={{
-                    width: formatConfig.width * previewScale,
-                    height: formatConfig.height * previewScale,
-                    maxWidth: '100%',
-                  }}
-                />
-              )}
+              <canvas
+                ref={canvasRef}
+                style={{
+                  width: formatConfig.width * previewScale,
+                  height: formatConfig.height * previewScale,
+                }}
+              />
             </div>
-
-            <div className="flex gap-2">
-              <Button onClick={handleDownload} className="flex-1">
-                <Download className="h-4 w-4 mr-2" />
-                Download PNG
-              </Button>
-              <Button variant="outline" onClick={handleCopy}>
-                <Copy className="h-4 w-4 mr-2" />
-                Copy
-              </Button>
-            </div>
-
-            <Button variant="ghost" className="w-full" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
           </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-4">
+          <Button onClick={handleDownload} className="gap-2">
+            <Download className="w-4 h-4" />
+            Download PNG
+          </Button>
+          <Button variant="outline" onClick={handleCopy} className="gap-2">
+            <Copy className="w-4 h-4" />
+            Copy
+          </Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
