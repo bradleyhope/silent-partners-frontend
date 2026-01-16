@@ -1,413 +1,437 @@
 /**
- * Silent Partners - Export Modal
- * 
- * High-quality artwork generation using SVG serialization.
- * Includes title, subtitle, legend, and watermark options.
+ * Export Modal for Silent Partners
+ * Creates high-quality artwork exports with title, subtitle, legend, and watermark
+ * Renders directly from D3 simulation state for accurate positioning
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Download, Copy, Image } from 'lucide-react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
 import { entityColors } from '@/lib/store';
-import { Download, Copy, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+interface ExportFormat {
+  width: number;
+  height: number;
+  label: string;
+  scale: number;
+}
+
+const EXPORT_FORMATS: Record<string, ExportFormat> = {
+  'twitter': { width: 1200, height: 675, label: 'Twitter/X Card (1200×675)', scale: 2 },
+  'instagram-square': { width: 1080, height: 1080, label: 'Instagram Square (1080×1080)', scale: 2 },
+  'instagram-story': { width: 1080, height: 1920, label: 'Instagram Story (1080×1920)', scale: 2 },
+  'linkedin': { width: 1200, height: 627, label: 'LinkedIn (1200×627)', scale: 2 },
+  'hd': { width: 1920, height: 1080, label: 'HD Landscape (1920×1080)', scale: 2 },
+  '4k': { width: 3840, height: 2160, label: '4K Landscape (3840×2160)', scale: 1 },
+  '8k': { width: 7680, height: 4320, label: '8K Ultra HD (7680×4320)', scale: 1 },
+  'print-a4': { width: 2480, height: 3508, label: 'Print A4 (300dpi)', scale: 1 },
+};
+
+// Theme configurations for export
+const EXPORT_THEMES = {
+  lombardi: {
+    background: '#F9F7F4',
+    text: '#2A2A2A',
+    textLight: '#666666',
+    nodeStroke: '#2A2A2A',
+    nodeFill: '#F9F7F4',
+    linkStroke: '#2A2A2A',
+  },
+  default: {
+    background: '#FAFAF8',
+    text: '#1a1a1a',
+    textLight: '#666666',
+    nodeStroke: '#333333',
+    nodeFill: '#FFFFFF',
+    linkStroke: '#888888',
+  },
+  dark: {
+    background: '#1a1a1a',
+    text: '#E0E0E0',
+    textLight: '#888888',
+    nodeStroke: '#E0E0E0',
+    nodeFill: '#2a2a2a',
+    linkStroke: '#666666',
+  },
+};
 
 interface ExportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-const EXPORT_FORMATS = {
-  'twitter': { width: 1200, height: 675, label: 'Twitter/X Card' },
-  'instagram-square': { width: 1080, height: 1080, label: 'Instagram Square' },
-  'instagram-story': { width: 1080, height: 1920, label: 'Instagram Story' },
-  'linkedin': { width: 1200, height: 627, label: 'LinkedIn' },
-  'hd-landscape': { width: 1920, height: 1080, label: 'HD Landscape' },
-  '4k-landscape': { width: 3840, height: 2160, label: '4K Landscape' },
-  'print-a4': { width: 2480, height: 3508, label: 'Print A4 (300dpi)' },
-} as const;
-
-type FormatKey = keyof typeof EXPORT_FORMATS;
-
-// Convert OKLCH to RGB hex
-function oklchToHex(oklchStr: string): string {
-  // Simple fallback - return a default color if we can't parse
-  // This handles oklch colors that html2canvas can't process
-  const match = oklchStr.match(/oklch\(([\d.]+)%?\s+([\d.]+)\s+([\d.]+)/);
-  if (!match) return oklchStr;
-  
-  // Simplified conversion - just return approximate colors based on lightness
-  const lightness = parseFloat(match[1]);
-  if (lightness > 90) return '#f5f5f0'; // Light cream
-  if (lightness > 50) return '#666666'; // Medium gray
-  return '#1a1a1a'; // Dark
-}
-
 export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const { network } = useNetwork();
-  const { theme, config: themeConfig } = useCanvasTheme();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isExporting, setIsExporting] = useState(false);
-  const [isRendering, setIsRendering] = useState(false);
-  const [svgDataUrl, setSvgDataUrl] = useState<string | null>(null);
+  const { theme } = useCanvasTheme();
   
-  // Export options
-  const [format, setFormat] = useState<FormatKey>('twitter');
-  const [title, setTitle] = useState(network.title || '');
-  const [subtitle, setSubtitle] = useState(network.description || '');
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [format, setFormat] = useState('twitter');
+  const [title, setTitle] = useState('');
+  const [subtitle, setSubtitle] = useState('');
   const [showLabels, setShowLabels] = useState(true);
   const [showLegend, setShowLegend] = useState(true);
   const [showWatermark, setShowWatermark] = useState(true);
   const [watermarkText, setWatermarkText] = useState('Made with Silent Partners');
+  const [isRendering, setIsRendering] = useState(false);
 
-  // Update title when network changes
+  // Initialize title from network
   useEffect(() => {
-    setTitle(network.title || '');
-    setSubtitle(network.description || '');
-  }, [network.title, network.description]);
-
-  // Capture the SVG when modal opens
-  useEffect(() => {
-    if (open) {
-      setIsRendering(true);
-      const captureSvg = () => {
-        const svgElement = document.querySelector('#network-canvas svg') as SVGSVGElement;
-        if (svgElement) {
-          try {
-            // Clone the SVG
-            const svgClone = svgElement.cloneNode(true) as SVGSVGElement;
-            
-            // Get dimensions
-            const svgWidth = svgElement.clientWidth || 800;
-            const svgHeight = svgElement.clientHeight || 600;
-            
-            // Set explicit dimensions
-            svgClone.setAttribute('width', String(svgWidth));
-            svgClone.setAttribute('height', String(svgHeight));
-            svgClone.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
-            
-            // Add xmlns
-            svgClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-            
-            // Inline all computed styles and convert OKLCH colors
-            const elements = svgClone.querySelectorAll('*');
-            elements.forEach(el => {
-              const computed = window.getComputedStyle(el as Element);
-              const style = (el as HTMLElement).style;
-              
-              // Copy key styles
-              ['fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'font-weight', 'opacity'].forEach(prop => {
-                let value = computed.getPropertyValue(prop);
-                if (value && value !== 'none') {
-                  // Convert OKLCH colors
-                  if (value.includes('oklch')) {
-                    value = oklchToHex(value);
-                  }
-                  style.setProperty(prop, value);
-                }
-              });
-            });
-            
-            // Serialize to string
-            const serializer = new XMLSerializer();
-            const svgString = serializer.serializeToString(svgClone);
-            
-            // Create data URL
-            const dataUrl = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)));
-            setSvgDataUrl(dataUrl);
-          } catch (error) {
-            console.error('Failed to capture SVG:', error);
-          }
-        }
-        setIsRendering(false);
-      };
-      
-      // Small delay to ensure network is fully rendered
-      setTimeout(captureSvg, 300);
+    if (open && network.title) {
+      setTitle(network.title);
+      setSubtitle(network.description || '');
     }
-  }, [open]);
+  }, [open, network.title, network.description]);
 
-  // Render final artwork to canvas
-  const renderToCanvas = useCallback(async (canvas: HTMLCanvasElement, width: number, height: number, scale: number = 1): Promise<boolean> => {
-    const ctx = canvas.getContext('2d');
-    if (!ctx || !svgDataUrl) return false;
+  // Get node positions from global state or calculate from entities
+  const getNetworkState = useCallback(() => {
+    const globalState = (window as any).__SILENT_PARTNERS_STATE__;
+    
+    if (globalState && globalState.nodes && globalState.nodes.length > 0) {
+      return {
+        nodes: globalState.getNodePositions(),
+        links: globalState.links || [],
+      };
+    }
+    
+    // Fallback: use entity positions from network context
+    return {
+      nodes: network.entities.map(e => ({
+        id: e.id,
+        name: e.name,
+        type: e.type,
+        x: e.x ?? 0,
+        y: e.y ?? 0,
+      })),
+      links: network.relationships.map(r => ({
+        source: r.source,
+        target: r.target,
+        label: r.label,
+        status: r.status,
+      })),
+    };
+  }, [network.entities, network.relationships]);
 
+  // Calculate network bounds
+  const getNetworkBounds = useCallback((nodes: any[]) => {
+    if (!nodes || nodes.length === 0) {
+      return { minX: 0, minY: 0, maxX: 100, maxY: 100, width: 100, height: 100 };
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(node => {
+      if (node.x < minX) minX = node.x;
+      if (node.y < minY) minY = node.y;
+      if (node.x > maxX) maxX = node.x;
+      if (node.y > maxY) maxY = node.y;
+    });
+
+    const labelPadding = 100;
+    return {
+      minX: minX - labelPadding,
+      minY: minY - labelPadding,
+      maxX: maxX + labelPadding,
+      maxY: maxY + labelPadding,
+      width: (maxX - minX + labelPadding * 2) || 100,
+      height: (maxY - minY + labelPadding * 2) || 100,
+    };
+  }, []);
+
+  // Render to canvas
+  const renderToCanvas = useCallback((canvas: HTMLCanvasElement, isExport: boolean = false) => {
+    const formatConfig = EXPORT_FORMATS[format];
+    const scale = isExport ? formatConfig.scale : 1;
+    const width = formatConfig.width;
+    const height = formatConfig.height;
+    
     canvas.width = width * scale;
     canvas.height = height * scale;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
     ctx.scale(scale, scale);
-
-    // Enable high-quality rendering
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    // Get background color - convert OKLCH if needed
-    let bgColor = themeConfig.background;
-    if (bgColor.includes('oklch')) {
-      bgColor = theme === 'lombardi' ? '#f5f5f0' : '#1a1a1a';
-    }
-    
-    let textColor = themeConfig.textColor;
-    if (textColor.includes('oklch')) {
-      textColor = theme === 'lombardi' ? '#1a1a1a' : '#f5f5f0';
-    }
+    // Get theme colors
+    const themeKey = theme as keyof typeof EXPORT_THEMES;
+    const colors = EXPORT_THEMES[themeKey] || EXPORT_THEMES.default;
 
     // Background
-    ctx.fillStyle = bgColor;
+    ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
 
-    // Calculate layout areas
-    const padding = width * 0.04;
-    const headerHeight = title ? height * 0.12 : height * 0.02;
-    const legendHeight = showLegend ? height * 0.06 : 0;
-    const watermarkHeight = showWatermark ? height * 0.04 : 0;
+    // Get network state
+    const state = getNetworkState();
+    if (!state.nodes || state.nodes.length === 0) {
+      ctx.fillStyle = colors.textLight;
+      ctx.font = '24px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('No network to export', width / 2, height / 2);
+      return;
+    }
 
+    // Calculate layout areas - give more space to the network
+    const padding = width * 0.03;
+    const headerHeight = title ? height * 0.1 : height * 0.02;
+    const legendHeight = showLegend ? height * 0.06 : 0;
+    const watermarkHeight = showWatermark ? height * 0.03 : 0;
+    
     const networkArea = {
       x: padding,
       y: headerHeight,
       width: width - padding * 2,
-      height: height - headerHeight - legendHeight - watermarkHeight - padding * 0.5
+      height: height - headerHeight - legendHeight - watermarkHeight,
     };
 
     // Draw title
     if (title) {
-      ctx.fillStyle = textColor;
-      ctx.font = `bold ${Math.min(width * 0.04, 48)}px Georgia, serif`;
+      ctx.fillStyle = colors.text;
+      const titleSize = Math.min(width * 0.04, 48);
+      ctx.font = `bold ${titleSize}px "Crimson Text", Georgia, serif`;
       ctx.textAlign = 'center';
       ctx.fillText(title, width / 2, headerHeight * 0.45);
-
+      
       if (subtitle) {
-        ctx.fillStyle = textColor;
-        ctx.globalAlpha = 0.6;
-        ctx.font = `${Math.min(width * 0.018, 22)}px sans-serif`;
-        
-        // Truncate subtitle if too long
-        const maxSubtitleLength = 100;
-        const displaySubtitle = subtitle.length > maxSubtitleLength 
-          ? subtitle.substring(0, maxSubtitleLength) + '...'
-          : subtitle;
-        ctx.fillText(displaySubtitle, width / 2, headerHeight * 0.75);
+        ctx.fillStyle = colors.textLight;
+        const subtitleSize = Math.min(width * 0.016, 20);
+        ctx.font = `${subtitleSize}px "Inter", sans-serif`;
+        const maxSubtitleWidth = width * 0.9;
+        const truncatedSubtitle = subtitle.length > 140 ? subtitle.substring(0, 137) + '...' : subtitle;
+        ctx.fillText(truncatedSubtitle, width / 2, headerHeight * 0.78);
+      }
+    }
+
+    // Calculate network bounds and scale to fit - use more of the available space
+    const bounds = getNetworkBounds(state.nodes);
+    const networkScale = Math.min(
+      networkArea.width / bounds.width,
+      networkArea.height / bounds.height
+    ) * 0.95; // Use 95% of available space
+
+    const centerX = bounds.minX + bounds.width / 2;
+    const centerY = bounds.minY + bounds.height / 2;
+    const translateX = networkArea.x + networkArea.width / 2 - centerX * networkScale;
+    const translateY = networkArea.y + networkArea.height / 2 - centerY * networkScale;
+
+    // Create node map for link drawing
+    const nodeMap = new Map(state.nodes.map((n: any) => [n.id, n]));
+
+    // Draw links
+    const lineWidth = Math.max(0.8, width * 0.0008);
+    ctx.lineWidth = lineWidth;
+
+    state.links.forEach((link: any) => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      const source = nodeMap.get(sourceId);
+      const target = nodeMap.get(targetId);
+      if (!source || !target) return;
+
+      const sx = source.x * networkScale + translateX;
+      const sy = source.y * networkScale + translateY;
+      const ex = target.x * networkScale + translateX;
+      const ey = target.y * networkScale + translateY;
+
+      // Calculate curve control point
+      const dx = ex - sx;
+      const dy = ey - sy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const midX = (sx + ex) / 2;
+      const midY = (sy + ey) / 2;
+      const perpX = -dy / (dist || 1);
+      const perpY = dx / (dist || 1);
+      const curveDirection = sourceId < targetId ? 1 : -1;
+      const curveOffset = dist * 0.12 * curveDirection;
+      const cpX = midX + perpX * curveOffset;
+      const cpY = midY + perpY * curveOffset;
+
+      ctx.beginPath();
+      ctx.strokeStyle = colors.linkStroke;
+      ctx.globalAlpha = 0.5;
+      
+      if (link.status === 'suspected') {
+        ctx.setLineDash([4, 4]);
+      } else if (link.status === 'former') {
+        ctx.setLineDash([2, 3]);
+      } else {
+        ctx.setLineDash([]);
+      }
+
+      ctx.moveTo(sx, sy);
+      ctx.quadraticCurveTo(cpX, cpY, ex, ey);
+      ctx.stroke();
+    });
+
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    // Draw nodes
+    const isLombardi = theme === 'lombardi';
+    const baseRadius = Math.max(3, width * 0.004);
+    const fontSize = Math.max(8, width * 0.007);
+
+    state.nodes.forEach((node: any) => {
+      const x = node.x * networkScale + translateX;
+      const y = node.y * networkScale + translateY;
+      const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(node.type);
+      const radius = isLombardi ? (isHollow ? baseRadius * 1.4 : baseRadius * 0.7) : baseRadius;
+
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      
+      if (isLombardi) {
+        ctx.fillStyle = isHollow ? colors.background : colors.nodeStroke;
+        ctx.strokeStyle = colors.nodeStroke;
+        ctx.lineWidth = isHollow ? 1 : 0;
+        ctx.fill();
+        if (isHollow) ctx.stroke();
+      } else {
+        ctx.fillStyle = entityColors[node.type as keyof typeof entityColors] || entityColors.unknown;
+        ctx.fill();
+      }
+
+      // Draw label
+      if (showLabels) {
+        ctx.fillStyle = colors.text;
+        ctx.font = `${fontSize}px "Inter", sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 0.9;
+        ctx.fillText(node.name, x + radius + 3, y + fontSize * 0.35);
         ctx.globalAlpha = 1;
       }
-    }
-
-    // Draw network from SVG
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const imgAspect = img.width / img.height;
-        const areaAspect = networkArea.width / networkArea.height;
-        
-        let drawWidth, drawHeight, drawX, drawY;
-        
-        if (imgAspect > areaAspect) {
-          drawWidth = networkArea.width;
-          drawHeight = networkArea.width / imgAspect;
-          drawX = networkArea.x;
-          drawY = networkArea.y + (networkArea.height - drawHeight) / 2;
-        } else {
-          drawHeight = networkArea.height;
-          drawWidth = networkArea.height * imgAspect;
-          drawX = networkArea.x + (networkArea.width - drawWidth) / 2;
-          drawY = networkArea.y;
-        }
-
-        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
-
-        // Draw legend
-        if (showLegend) {
-          const legendY = height - legendHeight - watermarkHeight + legendHeight * 0.6;
-          const entityTypes = [...new Set(network.entities.map(e => e.type))];
-          const isLombardi = theme === 'lombardi';
-
-          ctx.fillStyle = textColor;
-          ctx.globalAlpha = 0.5;
-          ctx.font = `bold ${Math.min(width * 0.012, 14)}px sans-serif`;
-          ctx.textAlign = 'left';
-
-          let xPos = padding;
-          ctx.fillText('ENTITIES:', xPos, legendY);
-          xPos += 80;
-
-          ctx.globalAlpha = 1;
-          ctx.font = `${Math.min(width * 0.011, 13)}px sans-serif`;
-
-          entityTypes.slice(0, 5).forEach(type => {
-            ctx.beginPath();
-            const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(type);
-            
-            if (isLombardi) {
-              ctx.arc(xPos + 10, legendY - 4, isHollow ? 7 : 5, 0, Math.PI * 2);
-              ctx.fillStyle = isHollow ? bgColor : textColor;
-              ctx.fill();
-              if (isHollow) {
-                ctx.strokeStyle = textColor;
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-              }
-            } else {
-              ctx.arc(xPos + 10, legendY - 4, 6, 0, Math.PI * 2);
-              ctx.fillStyle = entityColors[type] || entityColors.unknown;
-              ctx.fill();
-            }
-
-            ctx.fillStyle = textColor;
-            ctx.fillText(type.charAt(0).toUpperCase() + type.slice(1), xPos + 22, legendY);
-            xPos += 100;
-          });
-        }
-
-        // Draw watermark
-        if (showWatermark) {
-          ctx.fillStyle = textColor;
-          ctx.globalAlpha = 0.4;
-          ctx.font = `${Math.min(width * 0.012, 14)}px sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText(watermarkText, width / 2, height - watermarkHeight * 0.3);
-          ctx.globalAlpha = 1;
-        }
-
-        resolve(true);
-      };
-      img.onerror = () => {
-        console.error('Failed to load SVG image');
-        resolve(false);
-      };
-      img.src = svgDataUrl;
     });
-  }, [svgDataUrl, network, theme, themeConfig, title, subtitle, showLabels, showLegend, showWatermark, watermarkText]);
 
-  // Render preview when options change
-  useEffect(() => {
-    if (open && canvasRef.current && svgDataUrl) {
-      const { width, height } = EXPORT_FORMATS[format];
-      // Render at reduced size for preview
-      const previewScale = Math.min(450 / width, 320 / height);
-      const previewWidth = Math.floor(width * previewScale);
-      const previewHeight = Math.floor(height * previewScale);
+    // Draw legend
+    if (showLegend) {
+      const legendY = height - legendHeight - watermarkHeight + legendHeight * 0.55;
+      const entityTypes = ['Person', 'Government', 'Financial', 'Organization', 'Corporation'];
+      const legendFontSize = Math.max(10, width * 0.009);
+      const dotSize = Math.max(5, width * 0.004);
       
-      canvasRef.current.style.width = `${previewWidth}px`;
-      canvasRef.current.style.height = `${previewHeight}px`;
+      ctx.font = `bold ${legendFontSize}px "Inter", sans-serif`;
+      ctx.fillStyle = colors.textLight;
+      ctx.textAlign = 'left';
       
-      renderToCanvas(canvasRef.current, width, height, previewScale);
+      let legendX = padding;
+      ctx.fillText('ENTITIES:', legendX, legendY);
+      legendX += ctx.measureText('ENTITIES:').width + 15;
+
+      ctx.font = `${legendFontSize}px "Inter", sans-serif`;
+      entityTypes.forEach((type) => {
+        const color = entityColors[type.toLowerCase() as keyof typeof entityColors] || entityColors.unknown;
+        
+        ctx.beginPath();
+        ctx.arc(legendX + dotSize, legendY - dotSize * 0.3, dotSize, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        
+        ctx.fillStyle = colors.text;
+        ctx.fillText(type, legendX + dotSize * 2 + 6, legendY);
+        legendX += ctx.measureText(type).width + dotSize * 2 + 25;
+      });
     }
-  }, [open, format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, svgDataUrl, renderToCanvas]);
+
+    // Draw watermark
+    if (showWatermark && watermarkText) {
+      ctx.fillStyle = colors.textLight;
+      ctx.font = `${Math.max(11, width * 0.009)}px "Inter", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = 0.5;
+      ctx.fillText(watermarkText, width / 2, height - watermarkHeight * 0.35);
+      ctx.globalAlpha = 1;
+    }
+  }, [format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, getNetworkState, getNetworkBounds]);
+
+  // Render preview when modal opens or options change
+  useEffect(() => {
+    if (open && canvasRef.current) {
+      setIsRendering(true);
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        if (canvasRef.current) {
+          renderToCanvas(canvasRef.current, false);
+        }
+        setIsRendering(false);
+      }, 150);
+    }
+  }, [open, format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, renderToCanvas]);
 
   // Download PNG
-  const handleDownloadPNG = async () => {
-    if (!svgDataUrl) {
-      toast.error('Network not captured yet. Please wait.');
-      return;
-    }
+  const handleDownload = useCallback(() => {
+    const canvas = document.createElement('canvas');
+    renderToCanvas(canvas, true);
     
-    setIsExporting(true);
-    try {
-      const { width, height } = EXPORT_FORMATS[format];
-      const exportCanvas = document.createElement('canvas');
-      const success = await renderToCanvas(exportCanvas, width, height, 2); // 2x scale for high quality
-
-      if (!success) {
-        throw new Error('Failed to render network');
-      }
-
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        exportCanvas.toBlob(
-          (b) => b ? resolve(b) : reject(new Error('Failed to create blob')),
-          'image/png',
-          1.0
-        );
-      });
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${title || 'network'}-${format}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      toast.success('PNG downloaded successfully');
-    } catch (error) {
-      console.error('Export error:', error);
-      toast.error('Failed to export PNG');
-    } finally {
-      setIsExporting(false);
-    }
-  };
+    const link = document.createElement('a');
+    const formatConfig = EXPORT_FORMATS[format];
+    link.download = `${title || 'network'}-${format}.png`;
+    link.href = canvas.toDataURL('image/png', 1.0);
+    link.click();
+    
+    toast.success('PNG downloaded successfully', {
+      description: `${formatConfig.width * formatConfig.scale}×${formatConfig.height * formatConfig.scale}px`,
+    });
+  }, [format, title, renderToCanvas]);
 
   // Copy to clipboard
-  const handleCopyToClipboard = async () => {
-    if (!svgDataUrl) {
-      toast.error('Network not captured yet. Please wait.');
-      return;
-    }
+  const handleCopy = useCallback(async () => {
+    const canvas = document.createElement('canvas');
+    renderToCanvas(canvas, true);
     
-    setIsExporting(true);
     try {
-      const { width, height } = EXPORT_FORMATS[format];
-      const exportCanvas = document.createElement('canvas');
-      const success = await renderToCanvas(exportCanvas, width, height, 2);
-
-      if (!success) {
-        throw new Error('Failed to render network');
-      }
-
       const blob = await new Promise<Blob>((resolve, reject) => {
-        exportCanvas.toBlob(
-          (b) => b ? resolve(b) : reject(new Error('Failed to create blob')),
-          'image/png',
-          1.0
-        );
+        canvas.toBlob((b) => b ? resolve(b) : reject(new Error('Failed to create blob')), 'image/png', 1.0);
       });
-
+      
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': blob })
       ]);
-
+      
       toast.success('Copied to clipboard');
-    } catch (error) {
-      console.error('Copy error:', error);
-      toast.error('Failed to copy to clipboard');
-    } finally {
-      setIsExporting(false);
+    } catch (err) {
+      toast.error('Failed to copy');
     }
-  };
+  }, [renderToCanvas]);
+
+  const formatConfig = EXPORT_FORMATS[format];
+  const previewScale = Math.min(480 / formatConfig.width, 340 / formatConfig.height, 1);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle className="font-display text-xl">Create Artwork</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Image className="h-5 w-5" />
+            Create Artwork
+          </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-          {/* Options Panel */}
+        <div className="grid grid-cols-2 gap-6">
+          {/* Options */}
           <div className="space-y-4">
-            {/* Format Selection */}
-            <div className="space-y-2">
+            <div>
               <Label>Format</Label>
-              <Select value={format} onValueChange={(v) => setFormat(v as FormatKey)}>
+              <Select value={format} onValueChange={setFormat}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {Object.entries(EXPORT_FORMATS).map(([key, fmt]) => (
-                    <SelectItem key={key} value={key}>
-                      {fmt.label} ({fmt.width}×{fmt.height})
-                    </SelectItem>
+                    <SelectItem key={key} value={key}>{fmt.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Title */}
-            <div className="space-y-2">
+            <div>
               <Label>Title</Label>
               <Input
                 value={title}
@@ -416,8 +440,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
               />
             </div>
 
-            {/* Subtitle */}
-            <div className="space-y-2">
+            <div>
               <Label>Subtitle</Label>
               <Input
                 value={subtitle}
@@ -426,11 +449,9 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
               />
             </div>
 
-            {/* Display Options */}
-            <div className="space-y-3 pt-2">
-              <Label className="text-muted-foreground">Display Options</Label>
-              
-              <div className="flex items-center space-x-2">
+            <div className="space-y-2">
+              <Label>Display Options</Label>
+              <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-labels"
                   checked={showLabels}
@@ -438,8 +459,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
                 />
                 <label htmlFor="show-labels" className="text-sm">Show Labels</label>
               </div>
-
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-legend"
                   checked={showLegend}
@@ -447,8 +467,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
                 />
                 <label htmlFor="show-legend" className="text-sm">Show Legend</label>
               </div>
-
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-watermark"
                   checked={showWatermark}
@@ -459,7 +478,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
             </div>
 
             {showWatermark && (
-              <div className="space-y-2">
+              <div>
                 <Label>Watermark Text</Label>
                 <Input
                   value={watermarkText}
@@ -470,50 +489,41 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
             )}
           </div>
 
-          {/* Preview Panel */}
+          {/* Preview */}
           <div className="space-y-4">
             <Label>Preview</Label>
-            <div className="border rounded-lg p-4 bg-muted/30 flex items-center justify-center min-h-[300px]">
+            <div 
+              className="border rounded-lg overflow-hidden bg-muted flex items-center justify-center"
+              style={{ minHeight: 300 }}
+            >
               {isRendering ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Capturing network...</span>
-                </div>
-              ) : !svgDataUrl ? (
-                <div className="text-muted-foreground text-sm">
-                  No network to preview
-                </div>
+                <div className="text-muted-foreground text-sm">Rendering...</div>
               ) : (
                 <canvas
                   ref={canvasRef}
-                  className="max-w-full max-h-[320px] shadow-lg rounded"
+                  style={{
+                    width: formatConfig.width * previewScale,
+                    height: formatConfig.height * previewScale,
+                    maxWidth: '100%',
+                  }}
                 />
               )}
             </div>
 
-            {/* Action Buttons */}
             <div className="flex gap-2">
-              <Button
-                onClick={handleDownloadPNG}
-                disabled={isExporting || !svgDataUrl}
-                className="flex-1"
-              >
-                {isExporting ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4 mr-2" />
-                )}
+              <Button onClick={handleDownload} className="flex-1">
+                <Download className="h-4 w-4 mr-2" />
                 Download PNG
               </Button>
-              <Button
-                variant="outline"
-                onClick={handleCopyToClipboard}
-                disabled={isExporting || !svgDataUrl}
-              >
-                <Copy className="w-4 h-4 mr-2" />
+              <Button variant="outline" onClick={handleCopy}>
+                <Copy className="h-4 w-4 mr-2" />
                 Copy
               </Button>
             </div>
+
+            <Button variant="ghost" className="w-full" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
           </div>
         </div>
       </DialogContent>

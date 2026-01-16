@@ -152,6 +152,15 @@ export default function NetworkCanvas() {
 
     simulationRef.current = simulation;
 
+    // Expose simulation state globally for export modal
+    (window as any).__SILENT_PARTNERS_STATE__ = {
+      nodes,
+      links,
+      theme,
+      themeConfig,
+      getNodePositions: () => nodes.map(n => ({ id: n.id, name: n.name, type: n.type, x: n.x, y: n.y })),
+    };
+
     const linkGroup = g.append('g').attr('class', 'links');
     
     // Determine if we're in Lombardi mode
