@@ -1,7 +1,7 @@
 /**
  * Silent Partners - Export Modal
  * 
- * High-quality artwork generation with proper Lombardi visualization.
+ * High-quality artwork generation by capturing the SVG network visualization.
  * Includes title, subtitle, legend, and watermark options.
  */
 
@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
-import { Entity, Relationship, entityColors } from '@/lib/store';
+import { entityColors } from '@/lib/store';
 import { Download, Copy, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -35,19 +35,12 @@ const EXPORT_FORMATS = {
 
 type FormatKey = keyof typeof EXPORT_FORMATS;
 
-const ENTITY_SHAPES: Record<string, 'circle' | 'hollow'> = {
-  'person': 'circle',
-  'corporation': 'hollow',
-  'organization': 'hollow',
-  'financial': 'hollow',
-  'government': 'hollow',
-};
-
 export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const { network } = useNetwork();
   const { theme, config: themeConfig } = useCanvasTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isRendering, setIsRendering] = useState(false);
   
   // Export options
   const [format, setFormat] = useState<FormatKey>('twitter');
@@ -64,70 +57,10 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     setSubtitle(network.description || '');
   }, [network.title, network.description]);
 
-  // Get network bounds
-  const getNetworkBounds = useCallback(() => {
-    if (network.entities.length === 0) {
-      return { minX: 0, minY: 0, maxX: 100, maxY: 100, width: 100, height: 100 };
-    }
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    network.entities.forEach(entity => {
-      const x = entity.x ?? 0;
-      const y = entity.y ?? 0;
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    });
-
-    const labelPadding = 80;
-    return {
-      minX: minX - labelPadding,
-      minY: minY - labelPadding,
-      maxX: maxX + labelPadding,
-      maxY: maxY + labelPadding,
-      width: (maxX - minX + labelPadding * 2) || 100,
-      height: (maxY - minY + labelPadding * 2) || 100
-    };
-  }, [network.entities]);
-
-  // Draw entity shape
-  const drawEntityShape = useCallback((
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    radius: number,
-    type: Entity['type'],
-    isLombardi: boolean
-  ) => {
-    ctx.beginPath();
-    
-    if (isLombardi) {
-      // Lombardi style: hollow circles for orgs, solid dots for people
-      const isHollow = ENTITY_SHAPES[type] === 'hollow';
-      ctx.arc(x, y, isHollow ? radius * 1.2 : radius * 0.6, 0, Math.PI * 2);
-      ctx.fillStyle = isHollow ? themeConfig.background : themeConfig.nodeStroke;
-      ctx.fill();
-      if (isHollow) {
-        ctx.strokeStyle = themeConfig.nodeStroke;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-    } else {
-      // Default colored style
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = entityColors[type] || entityColors.unknown;
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-  }, [themeConfig]);
-
-  // Render to canvas
-  const renderToCanvas = useCallback((canvas: HTMLCanvasElement, width: number, height: number, scale: number = 1) => {
+  // Capture SVG and render to canvas
+  const renderToCanvas = useCallback(async (canvas: HTMLCanvasElement, width: number, height: number, scale: number = 1) => {
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return false;
 
     canvas.width = width * scale;
     canvas.height = height * scale;
@@ -137,24 +70,24 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    const isLombardi = theme === 'lombardi';
-
     // Background
     ctx.fillStyle = themeConfig.background;
     ctx.fillRect(0, 0, width, height);
 
-    if (network.entities.length === 0) {
+    // Get the SVG element from the page
+    const svgElement = document.querySelector('#network-canvas svg') as SVGSVGElement;
+    if (!svgElement) {
       ctx.fillStyle = themeConfig.textColor;
       ctx.font = '24px Georgia, serif';
       ctx.textAlign = 'center';
       ctx.fillText('No network to export', width / 2, height / 2);
-      return;
+      return false;
     }
 
     // Calculate layout areas
-    const padding = width * 0.05;
-    const headerHeight = title ? height * 0.12 : height * 0.03;
-    const legendHeight = showLegend ? height * 0.08 : 0;
+    const padding = width * 0.04;
+    const headerHeight = title ? height * 0.12 : height * 0.02;
+    const legendHeight = showLegend ? height * 0.06 : 0;
     const watermarkHeight = showWatermark ? height * 0.04 : 0;
 
     const networkArea = {
@@ -167,148 +100,169 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Draw title
     if (title) {
       ctx.fillStyle = themeConfig.textColor;
-      ctx.font = `bold ${Math.min(width * 0.035, 42)}px "Source Serif 4", Georgia, serif`;
+      ctx.font = `bold ${Math.min(width * 0.04, 48)}px "Source Serif 4", Georgia, serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(title, width / 2, headerHeight * 0.5);
+      ctx.fillText(title, width / 2, headerHeight * 0.45);
 
       if (subtitle) {
         ctx.fillStyle = themeConfig.textColor;
         ctx.globalAlpha = 0.6;
-        ctx.font = `${Math.min(width * 0.018, 20)}px "Source Sans 3", sans-serif`;
-        ctx.fillText(subtitle, width / 2, headerHeight * 0.8);
+        ctx.font = `${Math.min(width * 0.018, 22)}px "Source Sans 3", sans-serif`;
+        
+        // Truncate subtitle if too long
+        const maxSubtitleLength = 100;
+        const displaySubtitle = subtitle.length > maxSubtitleLength 
+          ? subtitle.substring(0, maxSubtitleLength) + '...'
+          : subtitle;
+        ctx.fillText(displaySubtitle, width / 2, headerHeight * 0.75);
         ctx.globalAlpha = 1;
       }
     }
 
-    // Calculate network bounds and scale
-    const bounds = getNetworkBounds();
-    const networkScale = Math.min(
-      networkArea.width / bounds.width,
-      networkArea.height / bounds.height
-    ) * 0.9;
-
-    const centerX = bounds.minX + bounds.width / 2;
-    const centerY = bounds.minY + bounds.height / 2;
-    const translateX = networkArea.x + networkArea.width / 2 - centerX * networkScale;
-    const translateY = networkArea.y + networkArea.height / 2 - centerY * networkScale;
-
-    // Create entity map for quick lookup
-    const entityMap = new Map(network.entities.map(e => [e.id, e]));
-
-    // Draw links
-    ctx.lineWidth = isLombardi ? 1 : 1.5;
-    ctx.strokeStyle = themeConfig.linkStroke;
-
-    network.relationships.forEach(rel => {
-      const source = entityMap.get(rel.source);
-      const target = entityMap.get(rel.target);
-      if (!source || !target) return;
-
-      const sx = (source.x ?? 0) * networkScale + translateX;
-      const sy = (source.y ?? 0) * networkScale + translateY;
-      const ex = (target.x ?? 0) * networkScale + translateX;
-      const ey = (target.y ?? 0) * networkScale + translateY;
-
-      ctx.beginPath();
-      ctx.strokeStyle = themeConfig.linkStroke;
-      ctx.globalAlpha = isLombardi ? 0.9 : 0.6;
-
-      // Draw curved line (Lombardi style)
-      const dx = ex - sx;
-      const dy = ey - sy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const midX = (sx + ex) / 2;
-      const midY = (sy + ey) / 2;
-      const perpX = -dy / dist;
-      const perpY = dx / dist;
-      const curveOffset = dist * 0.15;
-      const cpX = midX + perpX * curveOffset;
-      const cpY = midY + perpY * curveOffset;
-
-      ctx.moveTo(sx, sy);
-      ctx.quadraticCurveTo(cpX, cpY, ex, ey);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // Draw relationship label on the curve
-      if (showLabels && rel.label) {
-        ctx.fillStyle = themeConfig.textColor;
-        ctx.globalAlpha = 0.7;
-        ctx.font = `${Math.max(9, width * 0.008)}px "Source Sans 3", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(rel.label, cpX, cpY - 4);
-        ctx.globalAlpha = 1;
-      }
-    });
-
-    // Draw nodes
-    const baseRadius = Math.max(6, width * 0.006);
-
-    network.entities.forEach(entity => {
-      const x = (entity.x ?? 0) * networkScale + translateX;
-      const y = (entity.y ?? 0) * networkScale + translateY;
-      const radius = baseRadius * (0.8 + (entity.importance || 5) * 0.04);
-
-      drawEntityShape(ctx, x, y, radius, entity.type, isLombardi);
-
-      // Draw label
-      if (showLabels) {
-        ctx.fillStyle = themeConfig.textColor;
-        ctx.font = `${Math.max(10, width * 0.009)}px "Source Sans 3", sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.fillText(entity.name, x + radius + 6, y + 4);
-      }
-    });
-
-    // Draw legend
-    if (showLegend) {
-      const legendY = height - legendHeight - watermarkHeight + legendHeight * 0.5;
-      const entityTypes = [...new Set(network.entities.map(e => e.type))];
-
-      ctx.fillStyle = themeConfig.textColor;
-      ctx.globalAlpha = 0.5;
-      ctx.font = `bold ${Math.min(width * 0.01, 11)}px "Source Sans 3", sans-serif`;
-      ctx.textAlign = 'left';
-
-      let xPos = padding;
-      ctx.fillText('ENTITIES:', xPos, legendY);
-      xPos += 70;
-
-      ctx.globalAlpha = 1;
-      ctx.font = `${Math.min(width * 0.009, 10)}px "Source Sans 3", sans-serif`;
-
-      entityTypes.slice(0, 5).forEach(type => {
-        drawEntityShape(ctx, xPos + 8, legendY - 3, 5, type, isLombardi);
-        ctx.fillStyle = themeConfig.textColor;
-        ctx.fillText(type.charAt(0).toUpperCase() + type.slice(1), xPos + 18, legendY);
-        xPos += 90;
-      });
+    // Clone and prepare SVG for rendering
+    const svgClone = svgElement.cloneNode(true) as SVGSVGElement;
+    
+    // Get the current viewBox or create one
+    const viewBox = svgElement.viewBox.baseVal;
+    const svgWidth = viewBox.width || svgElement.clientWidth || 800;
+    const svgHeight = viewBox.height || svgElement.clientHeight || 600;
+    
+    // Set explicit dimensions on clone
+    svgClone.setAttribute('width', String(svgWidth));
+    svgClone.setAttribute('height', String(svgHeight));
+    
+    // If no labels should be shown, hide them
+    if (!showLabels) {
+      const labels = svgClone.querySelectorAll('text');
+      labels.forEach(label => label.setAttribute('visibility', 'hidden'));
     }
 
-    // Draw watermark
-    if (showWatermark) {
-      ctx.fillStyle = themeConfig.textColor;
-      ctx.globalAlpha = 0.4;
-      ctx.font = `${Math.min(width * 0.01, 12)}px "Source Sans 3", sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText(watermarkText, width / 2, height - watermarkHeight * 0.3);
-      ctx.globalAlpha = 1;
+    // Serialize SVG to string
+    const serializer = new XMLSerializer();
+    let svgString = serializer.serializeToString(svgClone);
+    
+    // Add XML declaration and namespace if missing
+    if (!svgString.includes('xmlns=')) {
+      svgString = svgString.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
     }
-  }, [network, theme, themeConfig, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, getNetworkBounds, drawEntityShape]);
+
+    // Create a blob and image
+    const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+
+    return new Promise<boolean>((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        // Calculate scale to fit network area while maintaining aspect ratio
+        const imgAspect = svgWidth / svgHeight;
+        const areaAspect = networkArea.width / networkArea.height;
+        
+        let drawWidth, drawHeight, drawX, drawY;
+        
+        if (imgAspect > areaAspect) {
+          // Image is wider - fit to width
+          drawWidth = networkArea.width;
+          drawHeight = networkArea.width / imgAspect;
+          drawX = networkArea.x;
+          drawY = networkArea.y + (networkArea.height - drawHeight) / 2;
+        } else {
+          // Image is taller - fit to height
+          drawHeight = networkArea.height;
+          drawWidth = networkArea.height * imgAspect;
+          drawX = networkArea.x + (networkArea.width - drawWidth) / 2;
+          drawY = networkArea.y;
+        }
+
+        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+        URL.revokeObjectURL(url);
+
+        // Draw legend
+        if (showLegend) {
+          const legendY = height - legendHeight - watermarkHeight + legendHeight * 0.6;
+          const entityTypes = [...new Set(network.entities.map(e => e.type))];
+          const isLombardi = theme === 'lombardi';
+
+          ctx.fillStyle = themeConfig.textColor;
+          ctx.globalAlpha = 0.5;
+          ctx.font = `bold ${Math.min(width * 0.012, 14)}px "Source Sans 3", sans-serif`;
+          ctx.textAlign = 'left';
+
+          let xPos = padding;
+          ctx.fillText('ENTITIES:', xPos, legendY);
+          xPos += 80;
+
+          ctx.globalAlpha = 1;
+          ctx.font = `${Math.min(width * 0.011, 13)}px "Source Sans 3", sans-serif`;
+
+          entityTypes.slice(0, 5).forEach(type => {
+            // Draw entity shape
+            ctx.beginPath();
+            const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(type);
+            
+            if (isLombardi) {
+              ctx.arc(xPos + 10, legendY - 4, isHollow ? 7 : 5, 0, Math.PI * 2);
+              ctx.fillStyle = isHollow ? themeConfig.background : themeConfig.nodeStroke;
+              ctx.fill();
+              if (isHollow) {
+                ctx.strokeStyle = themeConfig.nodeStroke;
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+              }
+            } else {
+              ctx.arc(xPos + 10, legendY - 4, 6, 0, Math.PI * 2);
+              ctx.fillStyle = entityColors[type] || entityColors.unknown;
+              ctx.fill();
+            }
+
+            ctx.fillStyle = themeConfig.textColor;
+            ctx.fillText(type.charAt(0).toUpperCase() + type.slice(1), xPos + 22, legendY);
+            xPos += 100;
+          });
+        }
+
+        // Draw watermark
+        if (showWatermark) {
+          ctx.fillStyle = themeConfig.textColor;
+          ctx.globalAlpha = 0.4;
+          ctx.font = `${Math.min(width * 0.012, 14)}px "Source Sans 3", sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.fillText(watermarkText, width / 2, height - watermarkHeight * 0.3);
+          ctx.globalAlpha = 1;
+        }
+
+        resolve(true);
+      };
+      
+      img.onerror = () => {
+        console.error('Failed to load SVG as image');
+        URL.revokeObjectURL(url);
+        resolve(false);
+      };
+      
+      img.src = url;
+    });
+  }, [network, theme, themeConfig, title, subtitle, showLabels, showLegend, showWatermark, watermarkText]);
 
   // Render preview when options change
   useEffect(() => {
     if (open && canvasRef.current) {
+      setIsRendering(true);
       const { width, height } = EXPORT_FORMATS[format];
       // Render at reduced size for preview
-      const previewScale = Math.min(500 / width, 350 / height);
-      const previewWidth = width * previewScale;
-      const previewHeight = height * previewScale;
+      const previewScale = Math.min(450 / width, 320 / height);
+      const previewWidth = Math.floor(width * previewScale);
+      const previewHeight = Math.floor(height * previewScale);
       
       canvasRef.current.style.width = `${previewWidth}px`;
       canvasRef.current.style.height = `${previewHeight}px`;
       
-      renderToCanvas(canvasRef.current, width, height, 1);
+      // Small delay to ensure SVG is ready
+      setTimeout(async () => {
+        if (canvasRef.current) {
+          await renderToCanvas(canvasRef.current, width, height, previewScale);
+        }
+        setIsRendering(false);
+      }, 100);
     }
   }, [open, format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, renderToCanvas]);
 
@@ -318,7 +272,11 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     try {
       const { width, height } = EXPORT_FORMATS[format];
       const exportCanvas = document.createElement('canvas');
-      renderToCanvas(exportCanvas, width, height, 2); // 2x scale for high quality
+      const success = await renderToCanvas(exportCanvas, width, height, 2); // 2x scale for high quality
+
+      if (!success) {
+        throw new Error('Failed to render network');
+      }
 
       const blob = await new Promise<Blob>((resolve, reject) => {
         exportCanvas.toBlob(
@@ -352,7 +310,11 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     try {
       const { width, height } = EXPORT_FORMATS[format];
       const exportCanvas = document.createElement('canvas');
-      renderToCanvas(exportCanvas, width, height, 2);
+      const success = await renderToCanvas(exportCanvas, width, height, 2);
+
+      if (!success) {
+        throw new Error('Failed to render network');
+      }
 
       const blob = await new Promise<Blob>((resolve, reject) => {
         exportCanvas.toBlob(
@@ -470,10 +432,17 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           <div className="space-y-4">
             <Label>Preview</Label>
             <div className="border rounded-lg p-4 bg-muted/30 flex items-center justify-center min-h-[300px]">
-              <canvas
-                ref={canvasRef}
-                className="max-w-full max-h-[350px] shadow-lg rounded"
-              />
+              {isRendering ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Rendering preview...</span>
+                </div>
+              ) : (
+                <canvas
+                  ref={canvasRef}
+                  className="max-w-full max-h-[320px] shadow-lg rounded"
+                />
+              )}
             </div>
 
             {/* Action Buttons */}
