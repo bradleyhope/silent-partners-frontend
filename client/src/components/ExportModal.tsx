@@ -1,17 +1,16 @@
 /**
  * Export Modal for Silent Partners
  * Creates high-quality artwork exports with title, subtitle, legend, and watermark
- * Renders directly from D3 simulation state for accurate positioning
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Copy } from 'lucide-react';
+import { Download, Copy, RefreshCw } from 'lucide-react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
 import { entityColors } from '@/lib/store';
@@ -35,45 +34,9 @@ const EXPORT_FORMATS: Record<string, ExportFormat> = {
   'print-a4': { width: 2480, height: 3508, label: 'Print A4 (300dpi)', scale: 1 },
 };
 
-// Theme configurations for export
-const EXPORT_THEMES = {
-  lombardi: {
-    background: '#F9F7F4',
-    text: '#2A2A2A',
-    textLight: '#666666',
-    nodeStroke: '#2A2A2A',
-    nodeFill: '#F9F7F4',
-    linkStroke: '#2A2A2A',
-  },
-  default: {
-    background: '#FAFAF8',
-    text: '#1a1a1a',
-    textLight: '#666666',
-    nodeStroke: '#333333',
-    nodeFill: '#FFFFFF',
-    linkStroke: '#888888',
-  },
-  dark: {
-    background: '#1a1a1a',
-    text: '#E0E0E0',
-    textLight: '#888888',
-    nodeStroke: '#E0E0E0',
-    nodeFill: '#2a2a2a',
-    linkStroke: '#666666',
-  },
-};
-
 interface ExportModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-interface NodePosition {
-  id: string;
-  name: string;
-  type: string;
-  x: number;
-  y: number;
 }
 
 export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
@@ -88,7 +51,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [showLegend, setShowLegend] = useState(true);
   const [showWatermark, setShowWatermark] = useState(true);
   const [watermarkText, setWatermarkText] = useState('Made with Silent Partners');
-  const [renderKey, setRenderKey] = useState(0);
 
   // Initialize title from network
   useEffect(() => {
@@ -98,40 +60,28 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, network.title, network.description]);
 
-  // Get node positions from global state
-  const getNodes = useCallback((): NodePosition[] => {
-    const globalState = (window as any).__SILENT_PARTNERS_STATE__;
-    if (globalState && typeof globalState.getNodePositions === 'function') {
-      return globalState.getNodePositions();
-    }
-    // Fallback to network entities
-    return network.entities.map((e, i) => ({
-      id: e.id,
-      name: e.name,
-      type: e.type,
-      x: e.x ?? (100 + (i % 10) * 50),
-      y: e.y ?? (100 + Math.floor(i / 10) * 50),
-    }));
-  }, [network.entities]);
-
-  // Get links from global state or network
-  const getLinks = useCallback(() => {
-    const globalState = (window as any).__SILENT_PARTNERS_STATE__;
-    if (globalState && globalState.links) {
-      return globalState.links;
-    }
-    return network.relationships.map(r => ({
-      source: r.sourceId,
-      target: r.targetId,
-      type: r.type,
-      status: r.status,
-    }));
-  }, [network.relationships]);
-
-  // Render to canvas - now a standalone function
-  const renderCanvas = useCallback(() => {
+  // Render function
+  const renderCanvas = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      console.log('No canvas ref');
+      return;
+    }
+
+    // Get global state
+    const state = (window as any).__SILENT_PARTNERS_STATE__;
+    if (!state || typeof state.getNodePositions !== 'function') {
+      console.log('No global state');
+      return;
+    }
+
+    const nodes = state.getNodePositions();
+    const links = state.links || [];
+    
+    if (nodes.length === 0) {
+      console.log('No nodes');
+      return;
+    }
 
     const formatConfig = EXPORT_FORMATS[format];
     const width = formatConfig.width;
@@ -144,25 +94,19 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Get theme colors
-    const themeKey = theme === 'lombardi' ? 'lombardi' : theme === 'dark' ? 'dark' : 'default';
-    const colors = EXPORT_THEMES[themeKey];
+    // Theme colors
+    const isLombardi = theme === 'lombardi';
+    const isDark = theme === 'dark';
+    const bgColor = isLombardi ? '#F9F7F4' : isDark ? '#1a1a1a' : '#FAFAF8';
+    const textColor = isLombardi ? '#2A2A2A' : isDark ? '#E0E0E0' : '#1a1a1a';
+    const textLightColor = isLombardi ? '#666666' : isDark ? '#888888' : '#666666';
+    const nodeStroke = isLombardi ? '#2A2A2A' : isDark ? '#E0E0E0' : '#333333';
+    const nodeFill = isLombardi ? '#F9F7F4' : isDark ? '#2a2a2a' : '#FFFFFF';
+    const linkColor = isLombardi ? '#2A2A2A' : isDark ? '#666666' : '#888888';
 
     // Background
-    ctx.fillStyle = colors.background;
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, width, height);
-
-    // Get network data
-    const nodes = getNodes();
-    const links = getLinks();
-    
-    if (nodes.length === 0) {
-      ctx.fillStyle = colors.textLight;
-      ctx.font = '24px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('No network to export', width / 2, height / 2);
-      return;
-    }
 
     // Calculate layout areas
     const padding = Math.max(30, width * 0.025);
@@ -180,7 +124,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
     // Calculate network bounds
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    nodes.forEach(node => {
+    nodes.forEach((node: any) => {
       if (node.x < minX) minX = node.x;
       if (node.x > maxX) maxX = node.x;
       if (node.y < minY) minY = node.y;
@@ -190,7 +134,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const networkWidth = maxX - minX || 100;
     const networkHeight = maxY - minY || 100;
     
-    // Calculate scale to fit network in graph area with padding
+    // Calculate scale to fit network in graph area
     const scaleX = graphWidth / (networkWidth * 1.1);
     const scaleY = graphHeight / (networkHeight * 1.1);
     const networkScale = Math.min(scaleX, scaleY);
@@ -203,7 +147,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
     // Draw title
     if (title) {
-      ctx.fillStyle = colors.text;
+      ctx.fillStyle = textColor;
       ctx.font = `bold ${Math.max(24, width * 0.025)}px Georgia, serif`;
       ctx.textAlign = 'center';
       ctx.fillText(title, width / 2, padding + titleHeight * 0.6);
@@ -211,20 +155,19 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
     // Draw subtitle
     if (subtitle) {
-      ctx.fillStyle = colors.textLight;
+      ctx.fillStyle = textLightColor;
       ctx.font = `${Math.max(14, width * 0.012)}px "Inter", sans-serif`;
       ctx.textAlign = 'center';
-      const maxSubtitleWidth = width - padding * 2;
       const truncatedSubtitle = subtitle.length > 120 ? subtitle.substring(0, 117) + '...' : subtitle;
       ctx.fillText(truncatedSubtitle, width / 2, padding + titleHeight + subtitleHeight * 0.5);
     }
 
     // Create node position map for link drawing
-    const nodeMap = new Map<string, NodePosition>();
-    nodes.forEach(node => nodeMap.set(node.id, node));
+    const nodeMap = new Map<string, any>();
+    nodes.forEach((node: any) => nodeMap.set(node.id, node));
 
     // Draw links
-    ctx.strokeStyle = colors.linkStroke;
+    ctx.strokeStyle = linkColor;
     ctx.lineWidth = Math.max(0.5, width * 0.0005);
     ctx.globalAlpha = 0.4;
     
@@ -247,12 +190,16 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         const dx = x2 - x1;
         const dy = y2 - y1;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const curvature = Math.min(dist * 0.15, 30);
-        const ctrlX = midX - dy * curvature / dist;
-        const ctrlY = midY + dx * curvature / dist;
-        
-        ctx.moveTo(x1, y1);
-        ctx.quadraticCurveTo(ctrlX, ctrlY, x2, y2);
+        if (dist > 0) {
+          const curvature = Math.min(dist * 0.15, 30);
+          const ctrlX = midX - dy * curvature / dist;
+          const ctrlY = midY + dx * curvature / dist;
+          ctx.moveTo(x1, y1);
+          ctx.quadraticCurveTo(ctrlX, ctrlY, x2, y2);
+        } else {
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+        }
         ctx.stroke();
       }
     });
@@ -262,7 +209,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const radius = Math.max(3, width * 0.003);
     const fontSize = Math.max(8, width * 0.007);
     
-    nodes.forEach(node => {
+    nodes.forEach((node: any) => {
       const x = node.x * networkScale + translateX;
       const y = node.y * networkScale + translateY;
       const color = entityColors[node.type as keyof typeof entityColors] || entityColors.default;
@@ -271,14 +218,14 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       
       // Lombardi style: hollow for orgs, solid for people
-      if (theme === 'lombardi') {
-        ctx.strokeStyle = colors.nodeStroke;
+      if (isLombardi) {
+        ctx.strokeStyle = nodeStroke;
         ctx.lineWidth = Math.max(1, width * 0.001);
         if (node.type === 'person') {
-          ctx.fillStyle = colors.nodeStroke;
+          ctx.fillStyle = nodeStroke;
           ctx.fill();
         } else {
-          ctx.fillStyle = colors.nodeFill;
+          ctx.fillStyle = nodeFill;
           ctx.fill();
           ctx.stroke();
         }
@@ -289,7 +236,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
       // Draw label
       if (showLabels) {
-        ctx.fillStyle = colors.text;
+        ctx.fillStyle = textColor;
         ctx.font = `${fontSize}px "Inter", sans-serif`;
         ctx.textAlign = 'left';
         ctx.globalAlpha = 0.85;
@@ -309,7 +256,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.textAlign = 'left';
       
       let legendX = padding;
-      ctx.fillStyle = colors.textLight;
+      ctx.fillStyle = textLightColor;
       ctx.fillText('ENTITIES:', legendX, legendY);
       legendX += ctx.measureText('ENTITIES:').width + 15;
       
@@ -319,14 +266,14 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         // Draw dot
         ctx.beginPath();
         ctx.arc(legendX + dotSize, legendY - dotSize / 2, dotSize, 0, Math.PI * 2);
-        if (theme === 'lombardi') {
-          ctx.strokeStyle = colors.nodeStroke;
+        if (isLombardi) {
+          ctx.strokeStyle = nodeStroke;
           ctx.lineWidth = 1;
           if (type === 'Person') {
-            ctx.fillStyle = colors.nodeStroke;
+            ctx.fillStyle = nodeStroke;
             ctx.fill();
           } else {
-            ctx.fillStyle = colors.nodeFill;
+            ctx.fillStyle = nodeFill;
             ctx.fill();
             ctx.stroke();
           }
@@ -336,7 +283,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         }
         
         // Draw label
-        ctx.fillStyle = colors.textLight;
+        ctx.fillStyle = textLightColor;
         ctx.fillText(type, legendX + dotSize * 2 + 5, legendY);
         legendX += ctx.measureText(type).width + dotSize * 2 + 20;
       });
@@ -344,60 +291,35 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
 
     // Draw watermark
     if (showWatermark && watermarkText) {
-      ctx.fillStyle = colors.textLight;
+      ctx.fillStyle = textLightColor;
       ctx.font = `${Math.max(11, width * 0.009)}px "Inter", sans-serif`;
       ctx.textAlign = 'center';
       ctx.globalAlpha = 0.5;
       ctx.fillText(watermarkText, width / 2, height - watermarkHeight * 0.35);
       ctx.globalAlpha = 1;
     }
-  }, [format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, getNodes, getLinks]);
+
+    console.log(`Rendered ${nodes.length} nodes, ${links.length} links`);
+  };
 
   // Trigger render when modal opens or options change
   useEffect(() => {
     if (open) {
-      // Use requestAnimationFrame to ensure DOM is ready
-      const rafId = requestAnimationFrame(() => {
-        setTimeout(() => {
-          renderCanvas();
-        }, 100);
-      });
-      return () => cancelAnimationFrame(rafId);
+      // Wait for canvas to be mounted
+      const timer = setTimeout(() => {
+        renderCanvas();
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [open, renderKey]);
-
-  // Re-render when options change
-  useEffect(() => {
-    if (open && canvasRef.current) {
-      renderCanvas();
-    }
-  }, [format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, renderCanvas, open]);
+  }, [open, format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme]);
 
   // Download PNG
-  const handleDownload = useCallback(() => {
-    const formatConfig = EXPORT_FORMATS[format];
-    const canvas = document.createElement('canvas');
-    canvas.width = formatConfig.width * formatConfig.scale;
-    canvas.height = formatConfig.height * formatConfig.scale;
+  const handleDownload = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    ctx.scale(formatConfig.scale, formatConfig.scale);
-    
-    // Copy the preview canvas content at higher resolution
-    const previewCanvas = canvasRef.current;
-    if (previewCanvas) {
-      // Re-render at export scale
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = formatConfig.width;
-      tempCanvas.height = formatConfig.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      if (tempCtx) {
-        tempCtx.drawImage(previewCanvas, 0, 0);
-        ctx.drawImage(tempCanvas, 0, 0);
-      }
-    }
+    // Re-render at full resolution
+    renderCanvas();
     
     const link = document.createElement('a');
     link.download = `${title || 'network'}-${format}.png`;
@@ -405,10 +327,10 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     link.click();
     
     toast.success('PNG downloaded successfully');
-  }, [format, title]);
+  };
 
   // Copy to clipboard
-  const handleCopy = useCallback(async () => {
+  const handleCopy = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -428,12 +350,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     } catch (err) {
       toast.error('Failed to copy image');
     }
-  }, []);
-
-  // Force re-render button
-  const handleRefresh = () => {
-    setRenderKey(k => k + 1);
-    setTimeout(renderCanvas, 50);
   };
 
   const formatConfig = EXPORT_FORMATS[format];
@@ -523,9 +439,15 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           
           {/* Right: Preview */}
           <div>
-            <Label>Preview</Label>
+            <div className="flex items-center justify-between mb-1">
+              <Label>Preview</Label>
+              <Button variant="ghost" size="sm" onClick={renderCanvas}>
+                <RefreshCw className="w-4 h-4 mr-1" />
+                Refresh
+              </Button>
+            </div>
             <div 
-              className="border rounded-lg overflow-hidden bg-muted mt-1"
+              className="border rounded-lg overflow-hidden bg-muted"
               style={{ aspectRatio }}
             >
               <canvas
@@ -541,9 +463,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         </div>
         
         <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={handleRefresh}>
-            Refresh Preview
-          </Button>
           <Button onClick={handleDownload}>
             <Download className="w-4 h-4 mr-2" />
             Download PNG
