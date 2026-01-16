@@ -1,8 +1,16 @@
 /**
  * Silent Partners - Network Canvas
  * 
- * D3-powered network visualization with Lombardi-style curved connections.
- * Design: Archival Investigator aesthetic with subtle paper texture.
+ * D3-powered network visualization with authentic Mark Lombardi style.
+ * 
+ * Lombardi Visual Language:
+ * - Hollow circles for organizations/institutions
+ * - Solid black dots for individuals/people  
+ * - Elegant curved arcs (ship's curves)
+ * - Arrows showing direction of money/influence flow
+ * - Text labels ON the curved lines (using SVG textPath)
+ * - Dashed lines for suspected/unconfirmed relationships
+ * - Thin, delicate black ink on cream paper
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -35,6 +43,12 @@ interface SimulationLink {
   status?: 'confirmed' | 'suspected' | 'former';
 }
 
+// Lombardi node styles based on entity type
+// People = solid dots, Organizations/Institutions = hollow circles
+const isHollowNode = (type: Entity['type']): boolean => {
+  return ['corporation', 'organization', 'financial', 'government'].includes(type);
+};
+
 export default function NetworkCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,14 +80,26 @@ export default function NetworkCanvas() {
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  // Generate Lombardi-style curved path
-  // Use deterministic sweep based on node IDs to prevent flashing
-  const generateCurvedPath = useCallback((source: SimulationNode, target: SimulationNode): string => {
+  // Generate Lombardi-style curved path (ship's curve)
+  // More pronounced arc for the authentic Lombardi look
+  const generateCurvedPath = useCallback((source: SimulationNode, target: SimulationNode, forArrow = false): string => {
     const dx = target.x - source.x;
     const dy = target.y - source.y;
-    const dr = Math.sqrt(dx * dx + dy * dy) * 0.8;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // More pronounced curve (0.6 instead of 0.8 for tighter arcs)
+    const dr = dist * 0.7;
     // Deterministic sweep direction based on comparing source and target IDs
     const sweep = source.id < target.id ? 1 : 0;
+    
+    if (forArrow) {
+      // For arrows, we need to stop short of the target node
+      const nodeRadius = 8;
+      const angle = Math.atan2(dy, dx);
+      const endX = target.x - Math.cos(angle) * (nodeRadius + 2);
+      const endY = target.y - Math.sin(angle) * (nodeRadius + 2);
+      return `M${source.x},${source.y}A${dr},${dr} 0 0,${sweep} ${endX},${endY}`;
+    }
+    
     return `M${source.x},${source.y}A${dr},${dr} 0 0,${sweep} ${target.x},${target.y}`;
   }, []);
 
@@ -86,19 +112,47 @@ export default function NetworkCanvas() {
 
     svg.selectAll('*').remove();
 
+    // Add defs for arrow markers
+    const defs = svg.append('defs');
+    
+    // Arrow marker for Lombardi style
+    defs.append('marker')
+      .attr('id', 'arrow-lombardi')
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 8)
+      .attr('refY', 0)
+      .attr('markerWidth', 6)
+      .attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-4L10,0L0,4')
+      .attr('fill', themeConfig.linkStroke);
+
+    // Arrow marker for default/dark themes
+    defs.append('marker')
+      .attr('id', 'arrow-default')
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 8)
+      .attr('refY', 0)
+      .attr('markerWidth', 5)
+      .attr('markerHeight', 5)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-3L8,0L0,3')
+      .attr('fill', themeConfig.linkStroke);
+
     const g = svg.append('g').attr('class', 'canvas-content');
 
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
-      .touchable(() => true) // Enable touch events
+      .touchable(() => true)
       .on('zoom', (event) => {
         g.attr('transform', event.transform);
       });
 
-    // Apply zoom behavior with touch support
     svg.call(zoom)
-      .on('touchstart.zoom', null) // Remove default touchstart to allow custom handling
-      .call(zoom); // Re-apply to ensure touch works
+      .on('touchstart.zoom', null)
+      .call(zoom);
     zoomRef.current = zoom;
 
     const nodes: SimulationNode[] = network.entities.map((e) => ({
@@ -120,28 +174,37 @@ export default function NetworkCanvas() {
     const simulation = d3.forceSimulation<SimulationNode>(nodes)
       .force('link', d3.forceLink<SimulationNode, SimulationLink>(links)
         .id((d) => d.id)
-        .distance(150)
-        .strength(0.3))
-      .force('charge', d3.forceManyBody().strength(-400))
+        .distance(180) // Slightly more distance for cleaner layout
+        .strength(0.25))
+      .force('charge', d3.forceManyBody().strength(-500)) // Stronger repulsion
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(40));
+      .force('collision', d3.forceCollide().radius(50));
 
     simulationRef.current = simulation;
 
     const linkGroup = g.append('g').attr('class', 'links');
     
-    const linkPaths = linkGroup.selectAll('path')
+    // Determine if we're in Lombardi mode
+    const isLombardiMode = theme === 'lombardi';
+    const lineWidth = isLombardiMode ? 1 : 1.5;
+    const arrowMarkerId = isLombardiMode ? 'arrow-lombardi' : 'arrow-default';
+    
+    // Create path elements for links
+    const linkPaths = linkGroup.selectAll('path.link-path')
       .data(links)
       .join('path')
+      .attr('class', 'link-path')
+      .attr('id', (d, i) => `link-path-${i}`)
       .attr('fill', 'none')
       .attr('stroke', themeConfig.linkStroke)
-      .attr('stroke-width', 1.5)
-      .attr('stroke-opacity', 0.6)
+      .attr('stroke-width', lineWidth)
+      .attr('stroke-opacity', isLombardiMode ? 0.9 : 0.6)
       .attr('stroke-dasharray', (d) => {
-        if (d.status === 'suspected') return '5,5';
-        if (d.status === 'former') return '2,4';
+        if (d.status === 'suspected') return '4,4';
+        if (d.status === 'former') return '2,3';
         return 'none';
-      });
+      })
+      .attr('marker-end', `url(#${arrowMarkerId})`);
 
     // Create invisible hitboxes for hover detection on links
     const linkHitboxes = linkGroup.selectAll('path.hitbox')
@@ -150,26 +213,41 @@ export default function NetworkCanvas() {
       .attr('class', 'hitbox')
       .attr('fill', 'none')
       .attr('stroke', 'transparent')
-      .attr('stroke-width', 15) // Wider hitbox for easier hovering
+      .attr('stroke-width', 15)
       .style('cursor', 'pointer');
 
-    // Labels hidden by default, shown on hover
-    const linkLabels = linkGroup.selectAll('text')
+    // Text labels ON the curved path (Lombardi style)
+    // Create text elements that follow the path
+    const linkLabelsGroup = linkGroup.selectAll('text.link-label')
       .data(links.filter((l) => l.label))
       .join('text')
-      .attr('font-family', "'IBM Plex Mono', monospace")
-      .attr('font-size', '9px')
+      .attr('class', 'link-label')
+      .attr('font-family', isLombardiMode ? "'Source Serif 4', Georgia, serif" : "'IBM Plex Mono', monospace")
+      .attr('font-size', isLombardiMode ? '10px' : '9px')
       .attr('fill', themeConfig.linkLabelText)
-      .attr('text-anchor', 'middle')
-      .attr('opacity', showAllLabels ? 1 : 0) // Controlled by showAllLabels
-      .attr('pointer-events', 'none')
-      .text((d) => d.label || '');
+      .attr('opacity', showAllLabels ? 1 : 0)
+      .attr('pointer-events', 'none');
+
+    // Add textPath to make text follow the curve
+    linkLabelsGroup.each(function(d, i) {
+      const textEl = d3.select(this);
+      textEl.selectAll('*').remove();
+      
+      // Find the index of this link in the full links array
+      const linkIndex = links.findIndex(l => l.id === d.id);
+      
+      textEl.append('textPath')
+        .attr('href', `#link-path-${linkIndex}`)
+        .attr('startOffset', '50%')
+        .attr('text-anchor', 'middle')
+        .style('dominant-baseline', 'text-after-edge')
+        .text(d.label || '');
+    });
 
     // Click to select relationship
     linkHitboxes
       .on('click', function(event, d) {
         event.stopPropagation();
-        // Find the original relationship
         const rel = network.relationships.find(r => r.id === d.id);
         if (rel) {
           setSelectedRelationship(rel);
@@ -179,24 +257,20 @@ export default function NetworkCanvas() {
         }
       })
       .on('mouseenter', function(event, d) {
-        // Highlight the link
         linkPaths.filter((l) => l.id === d.id)
           .attr('stroke', '#B8860B')
-          .attr('stroke-width', 2.5)
+          .attr('stroke-width', lineWidth + 1)
           .attr('stroke-opacity', 1);
-        // Show the label
-        linkLabels.filter((l) => l.id === d.id)
+        linkLabelsGroup.filter((l) => l.id === d.id)
           .attr('opacity', 1);
       })
       .on('mouseleave', function(event, d) {
-        // Reset the link
         linkPaths.filter((l) => l.id === d.id)
           .attr('stroke', themeConfig.linkStroke)
-          .attr('stroke-width', 1.5)
-          .attr('stroke-opacity', 0.6);
-        // Hide the label (unless showAllLabels is on)
+          .attr('stroke-width', lineWidth)
+          .attr('stroke-opacity', isLombardiMode ? 0.9 : 0.6);
         if (!showAllLabels) {
-          linkLabels.filter((l) => l.id === d.id)
+          linkLabelsGroup.filter((l) => l.id === d.id)
             .attr('opacity', 0);
         }
       });
@@ -205,7 +279,6 @@ export default function NetworkCanvas() {
 
     const drag = d3.drag<SVGGElement, SimulationNode>()
       .on('start', function(event, d) {
-        // Use lower alpha to prevent other nodes from moving too much
         if (!event.active) simulation.alphaTarget(0.1).restart();
         d.fx = d.x;
         d.fy = d.y;
@@ -216,14 +289,10 @@ export default function NetworkCanvas() {
       })
       .on('end', function(event, d) {
         if (!event.active) simulation.alphaTarget(0);
-        // Release the node so it can settle naturally with the simulation
-        // Only keep it fixed if user explicitly wants to pin it
         d.fx = null;
         d.fy = null;
-        // Reset velocity to prevent jumpy behavior
         d.vx = 0;
         d.vy = 0;
-        // Save the final position
         updateEntity(d.id, { x: d.x, y: d.y });
       });
 
@@ -234,29 +303,76 @@ export default function NetworkCanvas() {
       .style('cursor', 'pointer')
       .call(drag);
 
-    // In Lombardi mode, all nodes are hollow black circles (no fill colors)
-    const useColors = (themeConfig as any).useEntityColors !== false;
+    // Lombardi-style node rendering
+    const useColors = themeConfig.useEntityColors !== false;
     
     nodeContainers.append('circle')
-      .attr('r', (d) => 8 + (d.importance || 5) * 0.5)
-      .attr('fill', (d) => useColors ? (entityColors[d.type] || entityColors.unknown) : themeConfig.nodeFill)
+      .attr('r', (d) => {
+        // In Lombardi mode, people are smaller solid dots, orgs are larger hollow circles
+        if (isLombardiMode) {
+          return isHollowNode(d.type) ? 10 : 5;
+        }
+        return 8 + (d.importance || 5) * 0.5;
+      })
+      .attr('fill', (d) => {
+        if (isLombardiMode) {
+          // Lombardi style: hollow for orgs, solid for people
+          return isHollowNode(d.type) ? themeConfig.background : themeConfig.nodeStroke;
+        }
+        return useColors ? (entityColors[d.type] || entityColors.unknown) : themeConfig.nodeFill;
+      })
       .attr('stroke', (d) => d.id === selectedEntityId ? '#B8860B' : themeConfig.nodeStroke)
-      .attr('stroke-width', (d) => d.id === selectedEntityId ? 3 : useColors ? 2 : 1.5)
-      .attr('opacity', useColors ? 0.9 : 1);
+      .attr('stroke-width', (d) => {
+        if (d.id === selectedEntityId) return 3;
+        if (isLombardiMode) return isHollowNode(d.type) ? 1.5 : 0;
+        return useColors ? 2 : 1.5;
+      })
+      .attr('opacity', 1);
 
-    nodeContainers.append('text')
-      .attr('dy', (d) => 20 + (d.importance || 5) * 0.5)
-      .attr('text-anchor', 'middle')
-      .attr('font-family', "'Source Sans 3', sans-serif")
-      .attr('font-size', '11px')
-      .attr('font-weight', '500')
-      .attr('fill', themeConfig.textColor)
-      .text((d) => d.name);
+    // Node labels - positioned beside the node (Lombardi style)
+    // Multi-line support for additional info like dates/titles
+    nodeContainers.each(function(d) {
+      const container = d3.select(this);
+      const nodeRadius = isLombardiMode ? (isHollowNode(d.type) ? 10 : 5) : 8 + (d.importance || 5) * 0.5;
+      
+      // Position label to the right of the node
+      const labelGroup = container.append('g')
+        .attr('class', 'label-group')
+        .attr('transform', `translate(${nodeRadius + 6}, 0)`);
+      
+      // Main name
+      labelGroup.append('text')
+        .attr('class', 'node-name')
+        .attr('dy', '0.35em')
+        .attr('text-anchor', 'start')
+        .attr('font-family', isLombardiMode ? "'Source Serif 4', Georgia, serif" : "'Source Sans 3', sans-serif")
+        .attr('font-size', isLombardiMode ? '11px' : '11px')
+        .attr('font-weight', isLombardiMode ? '400' : '500')
+        .attr('fill', themeConfig.textColor)
+        .text(d.name);
+      
+      // Additional info (description) on second line if available
+      if (d.description && isLombardiMode) {
+        // Truncate description for display
+        const shortDesc = d.description.length > 30 
+          ? d.description.substring(0, 30) + '...' 
+          : d.description;
+        
+        labelGroup.append('text')
+          .attr('class', 'node-desc')
+          .attr('dy', '1.5em')
+          .attr('text-anchor', 'start')
+          .attr('font-family', "'Source Serif 4', Georgia, serif")
+          .attr('font-size', '9px')
+          .attr('font-style', 'italic')
+          .attr('fill', themeConfig.textColor)
+          .attr('opacity', 0.7)
+          .text(shortDesc);
+      }
+    });
 
     nodeContainers.on('click', (event, d) => {
       event.stopPropagation();
-      console.log('Node clicked:', d.id, d.name);
-      // Get screen position for the card
       const svgRect = svgRef.current?.getBoundingClientRect();
       if (svgRect) {
         setCardPosition({
@@ -278,27 +394,14 @@ export default function NetworkCanvas() {
       linkPaths.attr('d', (d) => {
         const source = d.source as SimulationNode;
         const target = d.target as SimulationNode;
-        return generateCurvedPath(source, target);
+        return generateCurvedPath(source, target, true);
       });
 
-      // Update hitbox paths to match visible paths
       linkHitboxes.attr('d', (d) => {
         const source = d.source as SimulationNode;
         const target = d.target as SimulationNode;
         return generateCurvedPath(source, target);
       });
-
-      linkLabels
-        .attr('x', (d) => {
-          const source = d.source as SimulationNode;
-          const target = d.target as SimulationNode;
-          return (source.x + target.x) / 2;
-        })
-        .attr('y', (d) => {
-          const source = d.source as SimulationNode;
-          const target = d.target as SimulationNode;
-          return (source.y + target.y) / 2 - 5;
-        });
 
       nodeContainers.attr('transform', (d) => `translate(${d.x},${d.y})`);
     });
@@ -306,9 +409,9 @@ export default function NetworkCanvas() {
     return () => {
       simulation.stop();
     };
-  }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath, themeConfig, showAllLabels]);
+  }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath, themeConfig, showAllLabels, theme]);
 
-  // Only show dot pattern for default theme, not for dark or lombardi
+  // Only show dot pattern for default theme
   const showDotPattern = theme === 'default';
 
   if (network.entities.length === 0) {
@@ -347,7 +450,7 @@ export default function NetworkCanvas() {
         width={dimensions.width}
         height={dimensions.height}
         className="absolute inset-0"
-        style={{ touchAction: 'none' }} // Enable touch gestures for pinch-to-zoom
+        style={{ touchAction: 'none' }}
       />
       
       {/* Zoom Controls */}
@@ -388,7 +491,6 @@ export default function NetworkCanvas() {
           className="h-8 w-8 bg-card/90 hover:bg-card"
           onClick={() => {
             if (svgRef.current && zoomRef.current) {
-              // Calculate bounding box of all nodes
               const nodeGs = svgRef.current.querySelectorAll('g.node');
               if (nodeGs.length === 0) return;
               
@@ -408,7 +510,6 @@ export default function NetworkCanvas() {
                 }
               });
               
-              // Add padding
               const padding = 50;
               minX -= padding;
               minY -= padding;
@@ -419,12 +520,10 @@ export default function NetworkCanvas() {
               const boxHeight = maxY - minY;
               const { width, height } = dimensions;
               
-              // Calculate scale to fit
               const scale = Math.min(width / boxWidth, height / boxHeight, 1);
               const centerX = (minX + maxX) / 2;
               const centerY = (minY + maxY) / 2;
               
-              // Create transform to center and scale
               const transform = d3.zoomIdentity
                 .translate(width / 2, height / 2)
                 .scale(scale)

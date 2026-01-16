@@ -4,9 +4,13 @@
  * Manages the visual theme of the network canvas.
  * 
  * Themes:
- * - default: Current cream/gold aesthetic (what you see on load)
- * - lombardi: True Mark Lombardi style - black lines on white/cream, no colors
- * - dark: Dark mode without distracting grid dots
+ * - default: Current cream/gold aesthetic with colored entity types
+ * - lombardi: Authentic Mark Lombardi style - black ink on cream paper
+ *   - Hollow circles for organizations/institutions
+ *   - Solid dots for people
+ *   - Elegant curved arcs with arrows
+ *   - Text labels on the lines
+ * - dark: Dark mode for low-light environments
  */
 
 import { createContext, useContext, useState, ReactNode } from 'react';
@@ -43,32 +47,33 @@ export const canvasThemes: Record<CanvasTheme, CanvasThemeConfig> = {
     showGrid: false,
     useEntityColors: true,
   },
-  // Lombardi Classic: True Mark Lombardi style - black ink on cream paper
-  // No colors, just black circles and curved lines like his original drawings
+  // Lombardi Classic: Authentic Mark Lombardi style
+  // Black ink on warm cream paper, like his original drawings
+  // Hollow circles for orgs, solid dots for people
   lombardi: {
     name: 'Lombardi Classic',
-    background: '#FFFEF9', // Slightly warm white like aged paper
-    nodeStroke: '#1A1A1A', // Black ink
-    nodeFill: '#FFFEF9', // Same as background - hollow circles
-    linkStroke: '#1A1A1A', // Black ink
-    linkLabelBg: '#FFFEF9',
-    linkLabelText: '#1A1A1A',
-    textColor: '#1A1A1A',
+    background: '#FDFBF5', // Warm cream like aged paper
+    nodeStroke: '#2C2C2C', // Rich black ink
+    nodeFill: '#FDFBF5', // Same as background for hollow effect
+    linkStroke: '#2C2C2C', // Black ink
+    linkLabelBg: 'transparent',
+    linkLabelText: '#2C2C2C',
+    textColor: '#2C2C2C',
     gridColor: 'transparent',
     showGrid: false,
-    useEntityColors: false, // All entities are black circles
+    useEntityColors: false, // Monochromatic
   },
-  // Dark mode: Clean dark background without distracting grid
+  // Dark mode: Clean dark background
   dark: {
     name: 'Dark Mode',
-    background: '#0F0F14', // Very dark, almost black
+    background: '#0F0F14',
     nodeStroke: '#E2E8F0',
     nodeFill: '#1E1E28',
     linkStroke: '#6B7280',
     linkLabelBg: '#1E1E28',
     linkLabelText: '#E2E8F0',
     textColor: '#F1F5F9',
-    gridColor: 'transparent', // No grid in dark mode
+    gridColor: 'transparent',
     showGrid: false,
     useEntityColors: true,
   },
