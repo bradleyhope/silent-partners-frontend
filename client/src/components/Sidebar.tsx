@@ -22,6 +22,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCanvasTheme, CanvasTheme } from '@/contexts/CanvasThemeContext';
 import { generateId, Entity, Relationship } from '@/lib/store';
 import { useMobileSidebar } from '@/contexts/MobileSidebarContext';
+import { extractTextFromPdf, isPdfFile } from '@/lib/pdf-utils';
 
 // Example networks
 const EXAMPLE_NETWORKS = [
@@ -495,86 +496,81 @@ export default function Sidebar() {
     setSearchResults(results);
   }, [network.entities]);
 
-  // Handle PDF upload
+  // Handle PDF upload - client-side extraction then AI analysis
   const handlePdfUpload = useCallback(async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
+    if (!isPdfFile(file)) {
       toast.error('Please upload a PDF file');
       return;
     }
 
     setIsProcessing(true);
-    setUploadProgress('Uploading PDF...');
+    setUploadProgress('Reading PDF...');
 
     try {
-      // Start the upload job
-      const { job_id } = await api.uploadPdf(file);
-      setUploadProgress('Processing document...');
-
-      // Poll for job completion
-      let attempts = 0;
-      const maxAttempts = 60; // 5 minutes max
+      // Step 1: Extract text from PDF client-side
+      const pdfResult = await extractTextFromPdf(file, (progress) => {
+        setUploadProgress(progress.message);
+      });
       
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-        const status = await api.getJobStatus(job_id);
-        
-        if (status.status === 'completed' && status.result) {
-          // Process the result
-          const result = status.result;
-          
-          if (result.entities.length === 0) {
-            toast.warning('No entities found in the PDF');
-            return;
-          }
-
-          // Convert API response to our format
-          const apiIdToOurId = new Map<string, string>();
-          
-          const entities: Entity[] = result.entities.map((e) => {
-            const ourId = generateId();
-            if (e.id) apiIdToOurId.set(e.id, ourId);
-            apiIdToOurId.set(e.name.toLowerCase(), ourId);
-            
-            return {
-              id: ourId,
-              name: e.name,
-              type: (e.type?.toLowerCase() || 'organization') as Entity['type'],
-              description: e.description,
-              importance: e.importance || 5,
-            };
-          });
-
-          const relationships: Relationship[] = result.relationships
-            .map((r) => {
-              const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase());
-              const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase());
-              
-              if (!sourceId || !targetId) return null;
-              
-              return {
-                id: generateId(),
-                source: sourceId,
-                target: targetId,
-                type: r.type,
-                label: r.label,
-              } as Relationship;
-            })
-            .filter((r): r is Relationship => r !== null);
-
-          if (aiMode === 'new') clearNetwork();
-          addEntitiesAndRelationships(entities, relationships);
-          
-          toast.success(`Extracted ${entities.length} entities and ${relationships.length} connections from PDF`);
-          return;
-        } else if (status.status === 'failed') {
-          throw new Error(status.message || 'PDF processing failed');
-        }
-        
-        setUploadProgress(`Processing... ${status.stage || ''}`);
-        attempts++;
+      if (!pdfResult.text.trim()) {
+        toast.error('No text could be extracted from the PDF');
+        return;
       }
       
-      throw new Error('PDF processing timed out');
+      setUploadProgress(`Extracted ${pdfResult.pageCount} pages. Analyzing with AI...`);
+      
+      // Step 2: Send extracted text to AI for entity/relationship extraction
+      // Truncate if too long (API limit)
+      const maxTextLength = 50000;
+      const textToAnalyze = pdfResult.text.length > maxTextLength 
+        ? pdfResult.text.slice(0, maxTextLength) + '\n\n[Text truncated due to length...]'
+        : pdfResult.text;
+      
+      const result = await api.extract(textToAnalyze, 'gpt-5');
+      
+      if (!result.entities || result.entities.length === 0) {
+        toast.warning('No entities found in the PDF');
+        return;
+      }
+
+      // Convert API response to our format
+      const apiIdToOurId = new Map<string, string>();
+      
+      const entities: Entity[] = result.entities.map((e) => {
+        const ourId = generateId();
+        if (e.id) apiIdToOurId.set(e.id, ourId);
+        apiIdToOurId.set(e.name.toLowerCase(), ourId);
+        
+        return {
+          id: ourId,
+          name: e.name,
+          type: (e.type?.toLowerCase() || 'organization') as Entity['type'],
+          description: e.description,
+          importance: e.importance || 5,
+        };
+      });
+
+      const relationships: Relationship[] = result.relationships
+        .map((r) => {
+          const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase());
+          const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase());
+          
+          if (!sourceId || !targetId) return null;
+          
+          return {
+            id: generateId(),
+            source: sourceId,
+            target: targetId,
+            type: r.type,
+            label: r.label,
+          } as Relationship;
+        })
+        .filter((r): r is Relationship => r !== null);
+
+      if (aiMode === 'new') clearNetwork();
+      addEntitiesAndRelationships(entities, relationships);
+      
+      toast.success(`Extracted ${entities.length} entities and ${relationships.length} connections from PDF (${pdfResult.pageCount} pages)`);
     } catch (error) {
       console.error('PDF upload error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to process PDF');
