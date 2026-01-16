@@ -24,6 +24,7 @@ import { generateId, Entity, Relationship } from '@/lib/store';
 import { useMobileSidebar } from '@/contexts/MobileSidebarContext';
 import { extractTextFromPdf, isPdfFile } from '@/lib/pdf-utils';
 import pako from 'pako';
+import ExportModal from './ExportModal';
 
 // Example networks
 const EXAMPLE_NETWORKS = [
@@ -272,6 +273,7 @@ export default function Sidebar() {
 
   // Export format state
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
   
   // Export network as JSON
   const handleExportJson = useCallback(() => {
@@ -740,32 +742,76 @@ export default function Sidebar() {
     toast.info('Analyzing network for missing connections...');
     
     try {
-      const result = await api.infer(
-        network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
-        network.relationships.map(r => ({ source: r.source, target: r.target }))
-      );
+      // First try the /api/infer endpoint
+      let newRelationships: Relationship[] = [];
       
-      if (!result.inferred_relationships || result.inferred_relationships.length === 0) {
-        toast.info('No additional connections found');
-        return;
+      try {
+        const result = await api.infer(
+          network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
+          network.relationships.map(r => ({ source: r.source, target: r.target }))
+        );
+        
+        if (result.inferred_relationships && result.inferred_relationships.length > 0) {
+          newRelationships = result.inferred_relationships
+            .filter(ir => ir.confidence > 0.5)
+            .map(ir => ({
+              id: generateId(),
+              source: ir.source,
+              target: ir.target,
+              type: ir.type,
+              label: ir.description || ir.type,
+            }));
+        }
+      } catch (inferError) {
+        console.warn('Infer API failed, falling back to extract:', inferError);
+        
+        // Fallback: Use /api/extract to find relationships
+        const entityNames = network.entities.map(e => e.name).join(', ');
+        const existingRels = network.relationships.map(r => {
+          const source = network.entities.find(e => e.id === r.source);
+          const target = network.entities.find(e => e.id === r.target);
+          return source && target ? `${source.name} - ${target.name}` : null;
+        }).filter(Boolean).join('; ');
+        
+        const prompt = `Given these entities: ${entityNames}\n\nAnd these existing relationships: ${existingRels || 'none'}\n\n` +
+          `Find additional relationships between these entities that are not already listed. ` +
+          `Focus on business connections, financial ties, organizational relationships, and personal connections.`;
+        
+        const result = await api.extract(prompt, 'gpt-5');
+        
+        if (result.relationships && result.relationships.length > 0) {
+          const entityNameToId = new Map(network.entities.map(e => [e.name.toLowerCase(), e.id]));
+          
+          for (const rel of result.relationships) {
+            const sourceId = entityNameToId.get(rel.source.toLowerCase());
+            const targetId = entityNameToId.get(rel.target.toLowerCase());
+            
+            if (sourceId && targetId && sourceId !== targetId) {
+              // Check if relationship already exists
+              const exists = network.relationships.some(
+                r => (r.source === sourceId && r.target === targetId) ||
+                     (r.source === targetId && r.target === sourceId)
+              );
+              
+              if (!exists) {
+                newRelationships.push({
+                  id: generateId(),
+                  source: sourceId,
+                  target: targetId,
+                  type: rel.type,
+                  label: rel.label || rel.type,
+                });
+              }
+            }
+          }
+        }
       }
-      
-      // Add inferred relationships
-      const newRelationships: Relationship[] = result.inferred_relationships
-        .filter(ir => ir.confidence > 0.5) // Only high confidence
-        .map(ir => ({
-          id: generateId(),
-          source: ir.source,
-          target: ir.target,
-          type: ir.type,
-          label: ir.description || ir.type,
-        }));
       
       if (newRelationships.length > 0) {
         addEntitiesAndRelationships([], newRelationships);
         toast.success(`Found ${newRelationships.length} missing connection${newRelationships.length > 1 ? 's' : ''}`);
       } else {
-        toast.info('No high-confidence connections found');
+        toast.info('No additional connections found');
       }
     } catch (error) {
       console.error('Find links error:', error);
@@ -775,7 +821,7 @@ export default function Sidebar() {
     }
   }, [network.entities, network.relationships, addEntitiesAndRelationships]);
 
-  // Tool: Enrich all entities
+  // Tool: Enrich all entities using /api/extract
   const handleEnrichAll = useCallback(async () => {
     if (network.entities.length === 0) {
       toast.error('No entities to enrich');
@@ -783,61 +829,77 @@ export default function Sidebar() {
     }
     
     setIsEnrichingAll(true);
-    toast.info(`Enriching ${network.entities.length} entities...`);
-    
-    let enrichedCount = 0;
-    let newEntities: Entity[] = [];
-    let newRelationships: Relationship[] = [];
+    toast.info(`Enriching entities with AI...`);
     
     try {
-      for (const entity of network.entities.slice(0, 10)) { // Limit to 10 to avoid rate limits
-        try {
-          const result = await api.enrichEntity(entity.name, entity.type);
+      // Build a prompt that asks AI to find more details about existing entities
+      const entityList = network.entities.slice(0, 15).map(e => `${e.name} (${e.type})`).join(', ');
+      const prompt = `Research and provide detailed information about these entities and their connections: ${entityList}. ` +
+        `For each entity, provide: description, key facts, and any known relationships between them. ` +
+        `Focus on financial connections, business relationships, and organizational ties.`;
+      
+      const result = await api.extract(prompt, 'gpt-5');
+      
+      if (!result.entities || result.entities.length === 0) {
+        toast.info('No additional information found');
+        return;
+      }
+      
+      // Update existing entities with new descriptions
+      let enrichedCount = 0;
+      const newEntities: Entity[] = [];
+      const newRelationships: Relationship[] = [];
+      const existingNames = new Set(network.entities.map(e => e.name.toLowerCase()));
+      
+      for (const apiEntity of result.entities) {
+        const existingEntity = network.entities.find(
+          e => e.name.toLowerCase() === apiEntity.name.toLowerCase()
+        );
+        
+        if (existingEntity && apiEntity.description) {
+          // Update existing entity
+          dispatch({
+            type: 'UPDATE_ENTITY',
+            payload: { id: existingEntity.id, updates: { description: apiEntity.description } }
+          });
+          enrichedCount++;
+        } else if (!existingNames.has(apiEntity.name.toLowerCase())) {
+          // Add new entity
+          newEntities.push({
+            id: generateId(),
+            name: apiEntity.name,
+            type: (apiEntity.type?.toLowerCase() || 'person') as Entity['type'],
+            description: apiEntity.description,
+            importance: apiEntity.importance || 5,
+          });
+          existingNames.add(apiEntity.name.toLowerCase());
+        }
+      }
+      
+      // Add new relationships
+      const allEntities = [...network.entities, ...newEntities];
+      const entityNameToId = new Map(allEntities.map(e => [e.name.toLowerCase(), e.id]));
+      
+      for (const rel of result.relationships || []) {
+        const sourceId = entityNameToId.get(rel.source.toLowerCase());
+        const targetId = entityNameToId.get(rel.target.toLowerCase());
+        
+        if (sourceId && targetId) {
+          // Check if relationship already exists
+          const exists = network.relationships.some(
+            r => (r.source === sourceId && r.target === targetId) ||
+                 (r.source === targetId && r.target === sourceId)
+          );
           
-          if (result.enriched) {
-            // Update entity description
-            const enrichedDescription = [
-              result.enriched.description,
-              result.enriched.key_facts?.length > 0 
-                ? `Key facts: ${result.enriched.key_facts.join('; ')}`
-                : null
-            ].filter(Boolean).join('\n\n');
-            
-            dispatch({
-              type: 'UPDATE_ENTITY',
-              payload: { id: entity.id, updates: { description: enrichedDescription } }
+          if (!exists) {
+            newRelationships.push({
+              id: generateId(),
+              source: sourceId,
+              target: targetId,
+              type: rel.type,
+              label: rel.label || rel.type,
             });
-            enrichedCount++;
-            
-            // Add suggested connections
-            if (result.enriched.connections_suggested?.length > 0) {
-              for (const suggestion of result.enriched.connections_suggested) {
-                const existingEntity = network.entities.find(
-                  e => e.name.toLowerCase() === suggestion.name.toLowerCase()
-                );
-                
-                if (!existingEntity) {
-                  const newId = generateId();
-                  newEntities.push({
-                    id: newId,
-                    name: suggestion.name,
-                    type: 'person',
-                    description: `Suggested connection to ${entity.name}`,
-                    importance: 5,
-                  });
-                  newRelationships.push({
-                    id: generateId(),
-                    source: entity.id,
-                    target: newId,
-                    type: suggestion.relationship,
-                    label: suggestion.relationship,
-                  });
-                }
-              }
-            }
           }
-        } catch (e) {
-          console.warn(`Failed to enrich ${entity.name}:`, e);
         }
       }
       
@@ -845,14 +907,14 @@ export default function Sidebar() {
         addEntitiesAndRelationships(newEntities, newRelationships);
       }
       
-      toast.success(`Enriched ${enrichedCount} entities, added ${newEntities.length} new entities`);
+      toast.success(`Enriched ${enrichedCount} entities, added ${newEntities.length} new entities and ${newRelationships.length} connections`);
     } catch (error) {
       console.error('Enrich all error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to enrich entities');
     } finally {
       setIsEnrichingAll(false);
     }
-  }, [network.entities, dispatch, addEntitiesAndRelationships]);
+  }, [network.entities, network.relationships, dispatch, addEntitiesAndRelationships]);
 
   // Tool: Custom prompt to modify graph
   const handleToolPrompt = useCallback(async () => {
@@ -1044,24 +1106,31 @@ export default function Sidebar() {
                 <Download className="w-3 h-3" />
               </Button>
               {showExportMenu && (
-                <div className="absolute right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-lg z-50 min-w-[120px]">
+                <div className="absolute right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-lg z-50 min-w-[140px]">
+                  <button
+                    onClick={() => { setShowExportModal(true); setShowExportMenu(false); }}
+                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors font-medium text-primary"
+                  >
+                    ✨ Create Artwork
+                  </button>
+                  <div className="border-t border-border" />
                   <button
                     onClick={handleExportPng}
                     className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
                   >
-                    Export as PNG
+                    Quick PNG
                   </button>
                   <button
                     onClick={handleExportSvg}
                     className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
                   >
-                    Export as SVG
+                    Export SVG
                   </button>
                   <button
                     onClick={handleExportJson}
                     className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors border-t border-border"
                   >
-                    Export as JSON
+                    Export JSON
                   </button>
                 </div>
               )}
@@ -1472,6 +1541,9 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+
+      {/* Export Modal */}
+      <ExportModal open={showExportModal} onOpenChange={setShowExportModal} />
     </>
   );
 }

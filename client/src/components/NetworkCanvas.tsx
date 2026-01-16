@@ -6,11 +6,9 @@
  * Lombardi Visual Language:
  * - Hollow circles for organizations/institutions
  * - Solid black dots for individuals/people  
- * - Elegant curved arcs (ship's curves)
- * - Arrows showing direction of money/influence flow
- * - Text labels ON the curved lines (using SVG textPath)
- * - Dashed lines for suspected/unconfirmed relationships
- * - Thin, delicate black ink on cream paper
+ * - Elegant curved arcs (quadratic curves)
+ * - Clean, minimal aesthetic
+ * - Text labels beside nodes
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -32,6 +30,8 @@ interface SimulationNode extends Entity {
   y: number;
   vx?: number;
   vy?: number;
+  fx?: number | null;
+  fy?: number | null;
 }
 
 interface SimulationLink {
@@ -80,27 +80,26 @@ export default function NetworkCanvas() {
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  // Generate Lombardi-style curved path (ship's curve)
-  // More pronounced arc for the authentic Lombardi look
-  const generateCurvedPath = useCallback((source: SimulationNode, target: SimulationNode, forArrow = false): string => {
+  // Generate quadratic curved path
+  const generateCurvedPath = useCallback((source: SimulationNode, target: SimulationNode): string => {
     const dx = target.x - source.x;
     const dy = target.y - source.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    // More pronounced curve (0.6 instead of 0.8 for tighter arcs)
-    const dr = dist * 0.7;
-    // Deterministic sweep direction based on comparing source and target IDs
-    const sweep = source.id < target.id ? 1 : 0;
     
-    if (forArrow) {
-      // For arrows, we need to stop short of the target node
-      const nodeRadius = 8;
-      const angle = Math.atan2(dy, dx);
-      const endX = target.x - Math.cos(angle) * (nodeRadius + 2);
-      const endY = target.y - Math.sin(angle) * (nodeRadius + 2);
-      return `M${source.x},${source.y}A${dr},${dr} 0 0,${sweep} ${endX},${endY}`;
-    }
+    // Calculate control point for quadratic curve
+    const midX = (source.x + target.x) / 2;
+    const midY = (source.y + target.y) / 2;
+    const perpX = -dy / (dist || 1);
+    const perpY = dx / (dist || 1);
     
-    return `M${source.x},${source.y}A${dr},${dr} 0 0,${sweep} ${target.x},${target.y}`;
+    // Curve offset - consistent direction based on node IDs
+    const curveDirection = source.id < target.id ? 1 : -1;
+    const curveOffset = dist * 0.12 * curveDirection;
+    
+    const cpX = midX + perpX * curveOffset;
+    const cpY = midY + perpY * curveOffset;
+    
+    return `M${source.x},${source.y}Q${cpX},${cpY} ${target.x},${target.y}`;
   }, []);
 
   // Main D3 rendering
@@ -111,35 +110,6 @@ export default function NetworkCanvas() {
     const { width, height } = dimensions;
 
     svg.selectAll('*').remove();
-
-    // Add defs for arrow markers
-    const defs = svg.append('defs');
-    
-    // Arrow marker for Lombardi style
-    defs.append('marker')
-      .attr('id', 'arrow-lombardi')
-      .attr('viewBox', '0 -5 10 10')
-      .attr('refX', 8)
-      .attr('refY', 0)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('d', 'M0,-4L10,0L0,4')
-      .attr('fill', themeConfig.linkStroke);
-
-    // Arrow marker for default/dark themes
-    defs.append('marker')
-      .attr('id', 'arrow-default')
-      .attr('viewBox', '0 -5 10 10')
-      .attr('refX', 8)
-      .attr('refY', 0)
-      .attr('markerWidth', 5)
-      .attr('markerHeight', 5)
-      .attr('orient', 'auto')
-      .append('path')
-      .attr('d', 'M0,-3L8,0L0,3')
-      .attr('fill', themeConfig.linkStroke);
 
     const g = svg.append('g').attr('class', 'canvas-content');
 
@@ -174,11 +144,11 @@ export default function NetworkCanvas() {
     const simulation = d3.forceSimulation<SimulationNode>(nodes)
       .force('link', d3.forceLink<SimulationNode, SimulationLink>(links)
         .id((d) => d.id)
-        .distance(180) // Slightly more distance for cleaner layout
-        .strength(0.25))
-      .force('charge', d3.forceManyBody().strength(-500)) // Stronger repulsion
+        .distance(200)
+        .strength(0.2))
+      .force('charge', d3.forceManyBody().strength(-600))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(50));
+      .force('collision', d3.forceCollide().radius(60));
 
     simulationRef.current = simulation;
 
@@ -187,9 +157,8 @@ export default function NetworkCanvas() {
     // Determine if we're in Lombardi mode
     const isLombardiMode = theme === 'lombardi';
     const lineWidth = isLombardiMode ? 1 : 1.5;
-    const arrowMarkerId = isLombardiMode ? 'arrow-lombardi' : 'arrow-default';
     
-    // Create path elements for links
+    // Create single path elements for links (no duplicates)
     const linkPaths = linkGroup.selectAll('path.link-path')
       .data(links)
       .join('path')
@@ -198,42 +167,30 @@ export default function NetworkCanvas() {
       .attr('fill', 'none')
       .attr('stroke', themeConfig.linkStroke)
       .attr('stroke-width', lineWidth)
-      .attr('stroke-opacity', isLombardiMode ? 0.9 : 0.6)
+      .attr('stroke-opacity', isLombardiMode ? 0.85 : 0.5)
       .attr('stroke-dasharray', (d) => {
         if (d.status === 'suspected') return '4,4';
         if (d.status === 'former') return '2,3';
         return 'none';
       })
-      .attr('marker-end', `url(#${arrowMarkerId})`);
-
-    // Create invisible hitboxes for hover detection on links
-    const linkHitboxes = linkGroup.selectAll('path.hitbox')
-      .data(links)
-      .join('path')
-      .attr('class', 'hitbox')
-      .attr('fill', 'none')
-      .attr('stroke', 'transparent')
-      .attr('stroke-width', 15)
       .style('cursor', 'pointer');
 
     // Text labels ON the curved path (Lombardi style)
-    // Create text elements that follow the path
     const linkLabelsGroup = linkGroup.selectAll('text.link-label')
       .data(links.filter((l) => l.label))
       .join('text')
       .attr('class', 'link-label')
       .attr('font-family', isLombardiMode ? "'Source Serif 4', Georgia, serif" : "'IBM Plex Mono', monospace")
-      .attr('font-size', isLombardiMode ? '10px' : '9px')
-      .attr('fill', themeConfig.linkLabelText)
-      .attr('opacity', showAllLabels ? 1 : 0)
+      .attr('font-size', isLombardiMode ? '9px' : '8px')
+      .attr('fill', themeConfig.linkLabelText || themeConfig.textColor)
+      .attr('opacity', showAllLabels ? 0.8 : 0)
       .attr('pointer-events', 'none');
 
     // Add textPath to make text follow the curve
-    linkLabelsGroup.each(function(d, i) {
+    linkLabelsGroup.each(function(d) {
       const textEl = d3.select(this);
       textEl.selectAll('*').remove();
       
-      // Find the index of this link in the full links array
       const linkIndex = links.findIndex(l => l.id === d.id);
       
       textEl.append('textPath')
@@ -244,8 +201,8 @@ export default function NetworkCanvas() {
         .text(d.label || '');
     });
 
-    // Click to select relationship
-    linkHitboxes
+    // Click and hover on links
+    linkPaths
       .on('click', function(event, d) {
         event.stopPropagation();
         const rel = network.relationships.find(r => r.id === d.id);
@@ -257,7 +214,7 @@ export default function NetworkCanvas() {
         }
       })
       .on('mouseenter', function(event, d) {
-        linkPaths.filter((l) => l.id === d.id)
+        d3.select(this)
           .attr('stroke', '#B8860B')
           .attr('stroke-width', lineWidth + 1)
           .attr('stroke-opacity', 1);
@@ -265,10 +222,10 @@ export default function NetworkCanvas() {
           .attr('opacity', 1);
       })
       .on('mouseleave', function(event, d) {
-        linkPaths.filter((l) => l.id === d.id)
+        d3.select(this)
           .attr('stroke', themeConfig.linkStroke)
           .attr('stroke-width', lineWidth)
-          .attr('stroke-opacity', isLombardiMode ? 0.9 : 0.6);
+          .attr('stroke-opacity', isLombardiMode ? 0.85 : 0.5);
         if (!showAllLabels) {
           linkLabelsGroup.filter((l) => l.id === d.id)
             .attr('opacity', 0);
@@ -310,9 +267,9 @@ export default function NetworkCanvas() {
       .attr('r', (d) => {
         // In Lombardi mode, people are smaller solid dots, orgs are larger hollow circles
         if (isLombardiMode) {
-          return isHollowNode(d.type) ? 10 : 5;
+          return isHollowNode(d.type) ? 8 : 4;
         }
-        return 8 + (d.importance || 5) * 0.5;
+        return 7 + (d.importance || 5) * 0.4;
       })
       .attr('fill', (d) => {
         if (isLombardiMode) {
@@ -323,22 +280,21 @@ export default function NetworkCanvas() {
       })
       .attr('stroke', (d) => d.id === selectedEntityId ? '#B8860B' : themeConfig.nodeStroke)
       .attr('stroke-width', (d) => {
-        if (d.id === selectedEntityId) return 3;
-        if (isLombardiMode) return isHollowNode(d.type) ? 1.5 : 0;
-        return useColors ? 2 : 1.5;
+        if (d.id === selectedEntityId) return 2.5;
+        if (isLombardiMode) return isHollowNode(d.type) ? 1.2 : 0;
+        return useColors ? 1.5 : 1;
       })
       .attr('opacity', 1);
 
-    // Node labels - positioned beside the node (Lombardi style)
-    // Multi-line support for additional info like dates/titles
+    // Node labels - positioned beside the node
     nodeContainers.each(function(d) {
       const container = d3.select(this);
-      const nodeRadius = isLombardiMode ? (isHollowNode(d.type) ? 10 : 5) : 8 + (d.importance || 5) * 0.5;
+      const nodeRadius = isLombardiMode ? (isHollowNode(d.type) ? 8 : 4) : 7 + (d.importance || 5) * 0.4;
       
       // Position label to the right of the node
       const labelGroup = container.append('g')
         .attr('class', 'label-group')
-        .attr('transform', `translate(${nodeRadius + 6}, 0)`);
+        .attr('transform', `translate(${nodeRadius + 5}, 0)`);
       
       // Main name
       labelGroup.append('text')
@@ -346,38 +302,24 @@ export default function NetworkCanvas() {
         .attr('dy', '0.35em')
         .attr('text-anchor', 'start')
         .attr('font-family', isLombardiMode ? "'Source Serif 4', Georgia, serif" : "'Source Sans 3', sans-serif")
-        .attr('font-size', isLombardiMode ? '11px' : '11px')
+        .attr('font-size', isLombardiMode ? '10px' : '10px')
         .attr('font-weight', isLombardiMode ? '400' : '500')
         .attr('fill', themeConfig.textColor)
+        .attr('opacity', 0.9)
         .text(d.name);
-      
-      // Additional info (description) on second line if available
-      if (d.description && isLombardiMode) {
-        // Truncate description for display
-        const shortDesc = d.description.length > 30 
-          ? d.description.substring(0, 30) + '...' 
-          : d.description;
-        
-        labelGroup.append('text')
-          .attr('class', 'node-desc')
-          .attr('dy', '1.5em')
-          .attr('text-anchor', 'start')
-          .attr('font-family', "'Source Serif 4', Georgia, serif")
-          .attr('font-size', '9px')
-          .attr('font-style', 'italic')
-          .attr('fill', themeConfig.textColor)
-          .attr('opacity', 0.7)
-          .text(shortDesc);
-      }
     });
 
-    nodeContainers.on('click', (event, d) => {
+    // Node click handler
+    nodeContainers.on('click', function(event, d) {
       event.stopPropagation();
-      const svgRect = svgRef.current?.getBoundingClientRect();
-      if (svgRect) {
+      setSelectedRelationship(null);
+      setRelationshipCardPosition(null);
+      
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
         setCardPosition({
-          x: svgRect.left + d.x,
-          y: svgRect.top + d.y
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
         });
       }
       selectEntity(d.id);
@@ -394,12 +336,6 @@ export default function NetworkCanvas() {
       linkPaths.attr('d', (d) => {
         const source = d.source as SimulationNode;
         const target = d.target as SimulationNode;
-        return generateCurvedPath(source, target, true);
-      });
-
-      linkHitboxes.attr('d', (d) => {
-        const source = d.source as SimulationNode;
-        const target = d.target as SimulationNode;
         return generateCurvedPath(source, target);
       });
 
@@ -413,6 +349,43 @@ export default function NetworkCanvas() {
 
   // Only show dot pattern for default theme
   const showDotPattern = theme === 'default';
+
+  // Zoom controls
+  const handleZoomIn = () => {
+    if (svgRef.current && zoomRef.current) {
+      d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 1.3);
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (svgRef.current && zoomRef.current) {
+      d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 0.7);
+    }
+  };
+
+  const handleFitView = () => {
+    if (svgRef.current && zoomRef.current) {
+      d3.select(svgRef.current).transition().duration(500).call(zoomRef.current.transform, d3.zoomIdentity);
+    }
+  };
+
+  // Add entity
+  const handleAddEntity = () => {
+    if (!newEntityName.trim()) return;
+    
+    const newEntity: Entity = {
+      id: generateId(),
+      name: newEntityName.trim(),
+      type: newEntityType,
+      importance: 5,
+      x: dimensions.width / 2 + (Math.random() - 0.5) * 100,
+      y: dimensions.height / 2 + (Math.random() - 0.5) * 100,
+    };
+    
+    dispatch({ type: 'ADD_ENTITY', payload: newEntity });
+    setNewEntityName('');
+    setShowAddEntity(false);
+  };
 
   if (network.entities.length === 0) {
     return (
@@ -450,126 +423,64 @@ export default function NetworkCanvas() {
         ref={svgRef}
         width={dimensions.width}
         height={dimensions.height}
-        className="absolute inset-0"
-        style={{ touchAction: 'none' }}
+        className="touch-none"
       />
-      
+
       {/* Zoom Controls */}
-      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 flex flex-col gap-1">
+      <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10">
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8 bg-card/90 hover:bg-card"
-          onClick={() => {
-            if (svgRef.current && zoomRef.current) {
-              d3.select(svgRef.current).transition().duration(300).call(
-                zoomRef.current.scaleBy, 1.3
-              );
-            }
-          }}
-          title="Zoom In"
+          className="h-8 w-8 bg-background/80 backdrop-blur-sm"
+          onClick={handleZoomIn}
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8 bg-card/90 hover:bg-card"
-          onClick={() => {
-            if (svgRef.current && zoomRef.current) {
-              d3.select(svgRef.current).transition().duration(300).call(
-                zoomRef.current.scaleBy, 0.7
-              );
-            }
-          }}
-          title="Zoom Out"
+          className="h-8 w-8 bg-background/80 backdrop-blur-sm"
+          onClick={handleZoomOut}
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8 bg-card/90 hover:bg-card"
-          onClick={() => {
-            if (svgRef.current && zoomRef.current) {
-              const nodeGs = svgRef.current.querySelectorAll('g.node');
-              if (nodeGs.length === 0) return;
-              
-              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-              nodeGs.forEach((node) => {
-                const transform = node.getAttribute('transform');
-                if (transform) {
-                  const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
-                  if (match) {
-                    const x = parseFloat(match[1]);
-                    const y = parseFloat(match[2]);
-                    minX = Math.min(minX, x);
-                    minY = Math.min(minY, y);
-                    maxX = Math.max(maxX, x);
-                    maxY = Math.max(maxY, y);
-                  }
-                }
-              });
-              
-              const padding = 50;
-              minX -= padding;
-              minY -= padding;
-              maxX += padding;
-              maxY += padding;
-              
-              const boxWidth = maxX - minX;
-              const boxHeight = maxY - minY;
-              const { width, height } = dimensions;
-              
-              const scale = Math.min(width / boxWidth, height / boxHeight, 1);
-              const centerX = (minX + maxX) / 2;
-              const centerY = (minY + maxY) / 2;
-              
-              const transform = d3.zoomIdentity
-                .translate(width / 2, height / 2)
-                .scale(scale)
-                .translate(-centerX, -centerY);
-              
-              d3.select(svgRef.current).transition().duration(500).call(
-                zoomRef.current.transform, transform
-              );
-            }
-          }}
-          title="Reset Zoom"
+          className="h-8 w-8 bg-background/80 backdrop-blur-sm"
+          onClick={handleFitView}
         >
           <Maximize2 className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Minimap - hidden on mobile */}
-      <div className="absolute bottom-3 sm:bottom-4 right-3 sm:right-4 w-24 sm:w-32 h-auto sm:h-24 bg-card/80 border border-border rounded shadow-sm opacity-50 hidden sm:block">
-        <div className="text-[8px] sm:text-[9px] text-muted-foreground p-1 font-mono">
-          {network.entities.length} entities · {network.relationships.length} connections
-        </div>
-      </div>
+      {/* Add Entity Button */}
+      <Button
+        variant="outline"
+        size="sm"
+        className="absolute bottom-4 left-4 h-8 bg-background/80 backdrop-blur-sm z-10"
+        onClick={() => setShowAddEntity(true)}
+      >
+        <Plus className="h-4 w-4 mr-1" />
+        Add Entity
+      </Button>
 
       {/* Entity Card */}
-      {selectedEntityId && cardPosition && (() => {
-        const selectedEntity = network.entities.find(e => e.id === selectedEntityId);
-        if (!selectedEntity) return null;
-        return (
-          <EntityCard
-            entity={selectedEntity}
-            position={cardPosition}
-            onClose={() => {
-              selectEntity(null);
-              setCardPosition(null);
-            }}
-          />
-        );
-      })()}
+      {selectedEntityId && cardPosition && (
+        <EntityCard
+          entityId={selectedEntityId}
+          position={cardPosition}
+          onClose={() => {
+            selectEntity(null);
+            setCardPosition(null);
+          }}
+        />
+      )}
 
       {/* Relationship Card */}
       {selectedRelationship && relationshipCardPosition && (
         <RelationshipCard
           relationship={selectedRelationship}
-          sourceEntity={network.entities.find(e => e.id === selectedRelationship.source)}
-          targetEntity={network.entities.find(e => e.id === selectedRelationship.target)}
           position={relationshipCardPosition}
           onClose={() => {
             setSelectedRelationship(null);
@@ -577,6 +488,47 @@ export default function NetworkCanvas() {
           }}
         />
       )}
+
+      {/* Add Entity Dialog */}
+      <Dialog open={showAddEntity} onOpenChange={setShowAddEntity}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Entity</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input
+                value={newEntityName}
+                onChange={(e) => setNewEntityName(e.target.value)}
+                placeholder="Entity name..."
+                onKeyDown={(e) => e.key === 'Enter' && handleAddEntity()}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select value={newEntityType} onValueChange={(v) => setNewEntityType(v as Entity['type'])}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="person">Person</SelectItem>
+                  <SelectItem value="organization">Organization</SelectItem>
+                  <SelectItem value="corporation">Corporation</SelectItem>
+                  <SelectItem value="financial">Financial</SelectItem>
+                  <SelectItem value="government">Government</SelectItem>
+                  <SelectItem value="location">Location</SelectItem>
+                  <SelectItem value="event">Event</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddEntity(false)}>Cancel</Button>
+            <Button onClick={handleAddEntity} disabled={!newEntityName.trim()}>Add</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
