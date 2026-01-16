@@ -88,7 +88,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [showLegend, setShowLegend] = useState(true);
   const [showWatermark, setShowWatermark] = useState(true);
   const [watermarkText, setWatermarkText] = useState('Made with Silent Partners');
-  const [viewMode, setViewMode] = useState<'full' | 'current'>('full');
+  const [renderKey, setRenderKey] = useState(0);
 
   // Initialize title from network
   useEffect(() => {
@@ -128,20 +128,21 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }));
   }, [network.relationships]);
 
-  // Render to canvas
-  const renderToCanvas = useCallback((canvas: HTMLCanvasElement, isExport: boolean = false) => {
+  // Render to canvas - now a standalone function
+  const renderCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     const formatConfig = EXPORT_FORMATS[format];
-    const scale = isExport ? formatConfig.scale : 1;
     const width = formatConfig.width;
     const height = formatConfig.height;
     
-    canvas.width = width * scale;
-    canvas.height = height * scale;
+    // Set canvas dimensions
+    canvas.width = width;
+    canvas.height = height;
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
-    ctx.scale(scale, scale);
 
     // Get theme colors
     const themeKey = theme === 'lombardi' ? 'lombardi' : theme === 'dark' ? 'dark' : 'default';
@@ -205,7 +206,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.fillStyle = colors.text;
       ctx.font = `bold ${Math.max(24, width * 0.025)}px Georgia, serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(title, width / 2, padding + titleHeight * 0.65);
+      ctx.fillText(title, width / 2, padding + titleHeight * 0.6);
     }
 
     // Draw subtitle
@@ -214,87 +215,72 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.font = `${Math.max(14, width * 0.012)}px "Inter", sans-serif`;
       ctx.textAlign = 'center';
       const maxSubtitleWidth = width - padding * 2;
-      const truncatedSubtitle = subtitle.length > 120 ? subtitle.slice(0, 117) + '...' : subtitle;
+      const truncatedSubtitle = subtitle.length > 120 ? subtitle.substring(0, 117) + '...' : subtitle;
       ctx.fillText(truncatedSubtitle, width / 2, padding + titleHeight + subtitleHeight * 0.5);
     }
 
-    // Create node map for link drawing
+    // Create node position map for link drawing
     const nodeMap = new Map<string, NodePosition>();
     nodes.forEach(node => nodeMap.set(node.id, node));
 
     // Draw links
+    ctx.strokeStyle = colors.linkStroke;
     ctx.lineWidth = Math.max(0.5, width * 0.0005);
+    ctx.globalAlpha = 0.4;
+    
     links.forEach((link: any) => {
       const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
       const targetId = typeof link.target === 'object' ? link.target.id : link.target;
       const source = nodeMap.get(sourceId);
       const target = nodeMap.get(targetId);
-      if (!source || !target) return;
-
-      const sx = source.x * networkScale + translateX;
-      const sy = source.y * networkScale + translateY;
-      const ex = target.x * networkScale + translateX;
-      const ey = target.y * networkScale + translateY;
-
-      // Calculate curve
-      const dx = ex - sx;
-      const dy = ey - sy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const midX = (sx + ex) / 2;
-      const midY = (sy + ey) / 2;
-      const perpX = -dy / (dist || 1);
-      const perpY = dx / (dist || 1);
-      const curveDirection = sourceId < targetId ? 1 : -1;
-      const curveOffset = dist * 0.12 * curveDirection;
-      const cpX = midX + perpX * curveOffset;
-      const cpY = midY + perpY * curveOffset;
-
-      ctx.beginPath();
-      ctx.strokeStyle = colors.linkStroke;
-      ctx.globalAlpha = 0.4;
       
-      if (link.status === 'suspected') {
-        ctx.setLineDash([4, 4]);
-      } else if (link.status === 'former') {
-        ctx.setLineDash([2, 3]);
-      } else {
-        ctx.setLineDash([]);
+      if (source && target) {
+        const x1 = source.x * networkScale + translateX;
+        const y1 = source.y * networkScale + translateY;
+        const x2 = target.x * networkScale + translateX;
+        const y2 = target.y * networkScale + translateY;
+        
+        ctx.beginPath();
+        // Draw curved line
+        const midX = (x1 + x2) / 2;
+        const midY = (y1 + y2) / 2;
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const curvature = Math.min(dist * 0.15, 30);
+        const ctrlX = midX - dy * curvature / dist;
+        const ctrlY = midY + dx * curvature / dist;
+        
+        ctx.moveTo(x1, y1);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, x2, y2);
+        ctx.stroke();
       }
-
-      ctx.moveTo(sx, sy);
-      ctx.quadraticCurveTo(cpX, cpY, ex, ey);
-      ctx.stroke();
     });
-
-    ctx.setLineDash([]);
     ctx.globalAlpha = 1;
 
     // Draw nodes
-    const isLombardi = theme === 'lombardi';
-    const baseRadius = Math.max(3, width * 0.004);
+    const radius = Math.max(3, width * 0.003);
     const fontSize = Math.max(8, width * 0.007);
-
+    
     nodes.forEach(node => {
       const x = node.x * networkScale + translateX;
       const y = node.y * networkScale + translateY;
-      const color = entityColors[node.type as keyof typeof entityColors] || entityColors.unknown;
-      const radius = baseRadius;
-
+      const color = entityColors[node.type as keyof typeof entityColors] || entityColors.default;
+      
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
-
-      if (isLombardi) {
-        // Lombardi style: hollow for orgs, solid for people
-        const isOrg = ['organization', 'corporation', 'government', 'financial'].includes(node.type);
-        if (isOrg) {
-          ctx.strokeStyle = colors.nodeStroke;
-          ctx.lineWidth = Math.max(1, width * 0.001);
+      
+      // Lombardi style: hollow for orgs, solid for people
+      if (theme === 'lombardi') {
+        ctx.strokeStyle = colors.nodeStroke;
+        ctx.lineWidth = Math.max(1, width * 0.001);
+        if (node.type === 'person') {
+          ctx.fillStyle = colors.nodeStroke;
+          ctx.fill();
+        } else {
           ctx.fillStyle = colors.nodeFill;
           ctx.fill();
           ctx.stroke();
-        } else {
-          ctx.fillStyle = colors.nodeStroke;
-          ctx.fill();
         }
       } else {
         ctx.fillStyle = color;
@@ -319,26 +305,40 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       const legendFontSize = Math.max(10, width * 0.009);
       const dotSize = Math.max(5, width * 0.004);
       
-      ctx.font = `bold ${legendFontSize}px "Inter", sans-serif`;
-      ctx.fillStyle = colors.textLight;
+      ctx.font = `${legendFontSize}px "Inter", sans-serif`;
       ctx.textAlign = 'left';
       
       let legendX = padding;
+      ctx.fillStyle = colors.textLight;
       ctx.fillText('ENTITIES:', legendX, legendY);
       legendX += ctx.measureText('ENTITIES:').width + 15;
-
-      ctx.font = `${legendFontSize}px "Inter", sans-serif`;
-      entityTypes.forEach((type) => {
-        const color = entityColors[type.toLowerCase() as keyof typeof entityColors] || entityColors.unknown;
+      
+      entityTypes.forEach(type => {
+        const color = entityColors[type.toLowerCase() as keyof typeof entityColors] || entityColors.default;
         
+        // Draw dot
         ctx.beginPath();
-        ctx.arc(legendX + dotSize, legendY - dotSize * 0.3, dotSize, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
+        ctx.arc(legendX + dotSize, legendY - dotSize / 2, dotSize, 0, Math.PI * 2);
+        if (theme === 'lombardi') {
+          ctx.strokeStyle = colors.nodeStroke;
+          ctx.lineWidth = 1;
+          if (type === 'Person') {
+            ctx.fillStyle = colors.nodeStroke;
+            ctx.fill();
+          } else {
+            ctx.fillStyle = colors.nodeFill;
+            ctx.fill();
+            ctx.stroke();
+          }
+        } else {
+          ctx.fillStyle = color;
+          ctx.fill();
+        }
         
-        ctx.fillStyle = colors.text;
-        ctx.fillText(type, legendX + dotSize * 2 + 6, legendY);
-        legendX += ctx.measureText(type).width + dotSize * 2 + 25;
+        // Draw label
+        ctx.fillStyle = colors.textLight;
+        ctx.fillText(type, legendX + dotSize * 2 + 5, legendY);
+        legendX += ctx.measureText(type).width + dotSize * 2 + 20;
       });
     }
 
@@ -353,71 +353,103 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, getNodes, getLinks]);
 
-  // Render preview when modal opens or options change
+  // Trigger render when modal opens or options change
+  useEffect(() => {
+    if (open) {
+      // Use requestAnimationFrame to ensure DOM is ready
+      const rafId = requestAnimationFrame(() => {
+        setTimeout(() => {
+          renderCanvas();
+        }, 100);
+      });
+      return () => cancelAnimationFrame(rafId);
+    }
+  }, [open, renderKey]);
+
+  // Re-render when options change
   useEffect(() => {
     if (open && canvasRef.current) {
-      // Delay to ensure DOM and state are ready
-      const timer = setTimeout(() => {
-        if (canvasRef.current) {
-          renderToCanvas(canvasRef.current, false);
-        }
-      }, 200);
-      return () => clearTimeout(timer);
+      renderCanvas();
     }
-  }, [open, format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, renderToCanvas]);
+  }, [format, title, subtitle, showLabels, showLegend, showWatermark, watermarkText, theme, renderCanvas, open]);
 
   // Download PNG
   const handleDownload = useCallback(() => {
+    const formatConfig = EXPORT_FORMATS[format];
     const canvas = document.createElement('canvas');
-    renderToCanvas(canvas, true);
+    canvas.width = formatConfig.width * formatConfig.scale;
+    canvas.height = formatConfig.height * formatConfig.scale;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.scale(formatConfig.scale, formatConfig.scale);
+    
+    // Copy the preview canvas content at higher resolution
+    const previewCanvas = canvasRef.current;
+    if (previewCanvas) {
+      // Re-render at export scale
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = formatConfig.width;
+      tempCanvas.height = formatConfig.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (tempCtx) {
+        tempCtx.drawImage(previewCanvas, 0, 0);
+        ctx.drawImage(tempCanvas, 0, 0);
+      }
+    }
     
     const link = document.createElement('a');
-    const formatConfig = EXPORT_FORMATS[format];
     link.download = `${title || 'network'}-${format}.png`;
     link.href = canvas.toDataURL('image/png', 1.0);
     link.click();
     
-    toast.success('PNG downloaded successfully', {
-      description: `${formatConfig.width * formatConfig.scale}×${formatConfig.height * formatConfig.scale}px`,
-    });
-  }, [format, title, renderToCanvas]);
+    toast.success('PNG downloaded successfully');
+  }, [format, title]);
 
   // Copy to clipboard
   const handleCopy = useCallback(async () => {
-    const canvas = document.createElement('canvas');
-    renderToCanvas(canvas, true);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     
     try {
       const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((b) => b ? resolve(b) : reject(new Error('Failed to create blob')), 'image/png', 1.0);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error('Failed to create blob'));
+        }, 'image/png', 1.0);
       });
       
       await navigator.clipboard.write([
         new ClipboardItem({ 'image/png': blob })
       ]);
       
-      toast.success('Copied to clipboard');
+      toast.success('Image copied to clipboard');
     } catch (err) {
-      toast.error('Failed to copy');
+      toast.error('Failed to copy image');
     }
-  }, [renderToCanvas]);
+  }, []);
+
+  // Force re-render button
+  const handleRefresh = () => {
+    setRenderKey(k => k + 1);
+    setTimeout(renderCanvas, 50);
+  };
 
   const formatConfig = EXPORT_FORMATS[format];
-  const previewScale = Math.min(480 / formatConfig.width, 340 / formatConfig.height, 1);
+  const aspectRatio = formatConfig.width / formatConfig.height;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <span>Create Artwork</span>
-          </DialogTitle>
+          <DialogTitle>Create Artwork</DialogTitle>
         </DialogHeader>
-
+        
         <div className="grid grid-cols-2 gap-6">
-          {/* Options */}
+          {/* Left: Options */}
           <div className="space-y-4">
-            <div className="space-y-2">
+            <div>
               <Label>Format</Label>
               <Select value={format} onValueChange={setFormat}>
                 <SelectTrigger>
@@ -430,8 +462,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="space-y-2">
+            
+            <div>
               <Label>Title</Label>
               <Input
                 value={title}
@@ -439,8 +471,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
                 placeholder="Network title..."
               />
             </div>
-
-            <div className="space-y-2">
+            
+            <div>
               <Label>Subtitle</Label>
               <Input
                 value={subtitle}
@@ -448,37 +480,37 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
                 placeholder="Optional subtitle..."
               />
             </div>
-
-            <div className="space-y-3">
+            
+            <div className="space-y-2">
               <Label>Display Options</Label>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-labels"
                   checked={showLabels}
                   onCheckedChange={(checked) => setShowLabels(checked === true)}
                 />
-                <Label htmlFor="show-labels" className="font-normal">Show Labels</Label>
+                <label htmlFor="show-labels" className="text-sm">Show Labels</label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-legend"
                   checked={showLegend}
                   onCheckedChange={(checked) => setShowLegend(checked === true)}
                 />
-                <Label htmlFor="show-legend" className="font-normal">Show Legend</Label>
+                <label htmlFor="show-legend" className="text-sm">Show Legend</label>
               </div>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-watermark"
                   checked={showWatermark}
                   onCheckedChange={(checked) => setShowWatermark(checked === true)}
                 />
-                <Label htmlFor="show-watermark" className="font-normal">Show Watermark</Label>
+                <label htmlFor="show-watermark" className="text-sm">Show Watermark</label>
               </div>
             </div>
-
+            
             {showWatermark && (
-              <div className="space-y-2">
+              <div>
                 <Label>Watermark Text</Label>
                 <Input
                   value={watermarkText}
@@ -488,35 +520,36 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
               </div>
             )}
           </div>
-
-          {/* Preview */}
-          <div className="space-y-3">
+          
+          {/* Right: Preview */}
+          <div>
             <Label>Preview</Label>
             <div 
-              className="border rounded-lg bg-muted/30 flex items-center justify-center overflow-hidden"
-              style={{ 
-                width: formatConfig.width * previewScale,
-                height: formatConfig.height * previewScale,
-              }}
+              className="border rounded-lg overflow-hidden bg-muted mt-1"
+              style={{ aspectRatio }}
             >
               <canvas
                 ref={canvasRef}
-                style={{
-                  width: formatConfig.width * previewScale,
-                  height: formatConfig.height * previewScale,
+                style={{ 
+                  width: '100%', 
+                  height: '100%',
+                  display: 'block'
                 }}
               />
             </div>
           </div>
         </div>
-
-        <div className="flex justify-end gap-3 mt-4">
-          <Button onClick={handleDownload} className="gap-2">
-            <Download className="w-4 h-4" />
+        
+        <div className="flex justify-end gap-2 mt-4">
+          <Button variant="outline" onClick={handleRefresh}>
+            Refresh Preview
+          </Button>
+          <Button onClick={handleDownload}>
+            <Download className="w-4 h-4 mr-2" />
             Download PNG
           </Button>
-          <Button variant="outline" onClick={handleCopy} className="gap-2">
-            <Copy className="w-4 h-4" />
+          <Button variant="outline" onClick={handleCopy}>
+            <Copy className="w-4 h-4 mr-2" />
             Copy
           </Button>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
