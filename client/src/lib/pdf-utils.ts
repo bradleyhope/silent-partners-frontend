@@ -6,9 +6,8 @@
 
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure the worker - use a specific CDN version that's available
-// Note: pdfjs-dist 4.10.38 isn't on cdnjs, so we use the closest available version
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.worker.min.js';
+// Configure the worker - use cdnjs with .mjs extension (newer pdf.js versions use ESM)
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.worker.min.mjs';
 
 export interface PdfExtractionResult {
   text: string;
