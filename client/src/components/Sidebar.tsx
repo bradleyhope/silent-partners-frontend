@@ -356,13 +356,8 @@ export default function Sidebar() {
     setShowExportMenu(prev => !prev);
   }, []);
 
-  // Handle save to cloud
+  // Handle save - saves to cloud if authenticated, otherwise saves locally
   const handleSave = useCallback(async () => {
-    if (!isAuthenticated) {
-      toast.error('Please sign in to save networks');
-      return;
-    }
-
     if (network.entities.length === 0) {
       toast.error('Nothing to save - add some entities first');
       return;
@@ -370,23 +365,45 @@ export default function Sidebar() {
 
     setIsSaving(true);
     try {
-      await api.saveGraph({
-        name: network.title,
-        description: network.description,
-        entities: network.entities.map(e => ({
-          id: e.id,
-          name: e.name,
-          type: e.type,
-          description: e.description,
-        })),
-        relationships: network.relationships.map(r => ({
-          source: r.source,
-          target: r.target,
-          type: r.type,
-          label: r.label,
-        })),
-      });
-      toast.success('Network saved!');
+      if (isAuthenticated) {
+        // Save to cloud
+        await api.saveGraph({
+          name: network.title,
+          description: network.description,
+          entities: network.entities.map(e => ({
+            id: e.id,
+            name: e.name,
+            type: e.type,
+            description: e.description,
+          })),
+          relationships: network.relationships.map(r => ({
+            source: r.source,
+            target: r.target,
+            type: r.type,
+            label: r.label,
+          })),
+        });
+        toast.success('Network saved to cloud!');
+      } else {
+        // Save to localStorage
+        const networkData = {
+          title: network.title || 'Untitled Network',
+          description: network.description,
+          entities: network.entities,
+          relationships: network.relationships,
+          savedAt: new Date().toISOString(),
+        };
+        const savedNetworks = JSON.parse(localStorage.getItem('silentPartners_savedNetworks') || '[]');
+        // Check if network with same title exists and update it
+        const existingIndex = savedNetworks.findIndex((n: { title: string }) => n.title === networkData.title);
+        if (existingIndex >= 0) {
+          savedNetworks[existingIndex] = networkData;
+        } else {
+          savedNetworks.push(networkData);
+        }
+        localStorage.setItem('silentPartners_savedNetworks', JSON.stringify(savedNetworks));
+        toast.success('Network saved locally! Sign in to save to cloud.');
+      }
     } catch (error) {
       console.error('Save error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to save network');
@@ -398,11 +415,6 @@ export default function Sidebar() {
   // Handle share network
   const [isSharing, setIsSharing] = useState(false);
   const handleShare = useCallback(async () => {
-    if (!isAuthenticated) {
-      toast.error('Please sign in to share networks');
-      return;
-    }
-
     if (network.entities.length === 0) {
       toast.error('Nothing to share - add some entities first');
       return;
@@ -410,30 +422,55 @@ export default function Sidebar() {
 
     setIsSharing(true);
     try {
-      // First save the network to get an ID
-      const { id } = await api.saveGraph({
-        name: network.title,
-        description: network.description,
-        entities: network.entities.map(e => ({
-          id: e.id,
-          name: e.name,
-          type: e.type,
-          description: e.description,
-        })),
-        relationships: network.relationships.map(r => ({
-          source: r.source,
-          target: r.target,
-          type: r.type,
-          label: r.label,
-        })),
-      });
-
-      // Then generate share link
-      const { share_url } = await api.shareGraph(id);
-      
-      // Copy to clipboard
-      await navigator.clipboard.writeText(share_url);
-      toast.success('Share link copied to clipboard!');
+      if (isAuthenticated) {
+        // Share via cloud - save and get share link
+        const { id } = await api.saveGraph({
+          name: network.title,
+          description: network.description,
+          entities: network.entities.map(e => ({
+            id: e.id,
+            name: e.name,
+            type: e.type,
+            description: e.description,
+          })),
+          relationships: network.relationships.map(r => ({
+            source: r.source,
+            target: r.target,
+            type: r.type,
+            label: r.label,
+          })),
+        });
+        const { share_url } = await api.shareGraph(id);
+        await navigator.clipboard.writeText(share_url);
+        toast.success('Share link copied to clipboard!');
+      } else {
+        // Share as JSON data URL - encode network data and copy as shareable link
+        const networkData = {
+          title: network.title || 'Untitled Network',
+          description: network.description,
+          entities: network.entities,
+          relationships: network.relationships,
+        };
+        const jsonString = JSON.stringify(networkData);
+        const base64Data = btoa(encodeURIComponent(jsonString));
+        const shareUrl = `${window.location.origin}?data=${base64Data}`;
+        
+        // If URL is too long, fall back to downloading JSON
+        if (shareUrl.length > 2000) {
+          // Download as JSON file instead
+          const blob = new Blob([jsonString], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${network.title || 'network'}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          toast.success('Network exported as JSON file (too large for URL sharing)');
+        } else {
+          await navigator.clipboard.writeText(shareUrl);
+          toast.success('Share link copied! Sign in for cloud sharing.');
+        }
+      }
     } catch (error) {
       console.error('Share error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to share network');
@@ -805,15 +842,15 @@ export default function Sidebar() {
 
           {/* PDF Upload Drop Zone */}
           <div className="pt-2 border-t border-border">
-            <div
+            <label
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`relative border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
+              className={`relative block border-2 border-dashed rounded-lg p-4 text-center transition-colors cursor-pointer ${
                 isDragging 
                   ? 'border-primary bg-primary/5' 
-                  : 'border-border hover:border-muted-foreground/50'
-              }`}
+                  : 'border-border hover:border-muted-foreground/50 hover:bg-muted/30'
+              } ${isProcessing ? 'pointer-events-none opacity-60' : ''}`}
             >
               <input
                 type="file"
@@ -822,7 +859,7 @@ export default function Sidebar() {
                   const file = e.target.files?.[0];
                   if (file) handlePdfUpload(file);
                 }}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                className="sr-only"
                 disabled={isProcessing}
               />
               {uploadProgress ? (
@@ -831,14 +868,14 @@ export default function Sidebar() {
                   <span className="text-xs text-muted-foreground">{uploadProgress}</span>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-2">
-                  <FileText className="w-6 h-6 text-muted-foreground" />
+                <div className="flex flex-col items-center gap-2 pointer-events-none">
+                  <Upload className="w-6 h-6 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">
                     Drop PDF here or click to upload
                   </span>
                 </div>
               )}
-            </div>
+            </label>
           </div>
         </CollapsibleContent>
       </Collapsible>
