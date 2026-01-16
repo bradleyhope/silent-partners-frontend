@@ -31,6 +31,8 @@ const EXPORT_FORMATS: Record<string, ExportFormat> = {
   'hd': { width: 1920, height: 1080, label: 'HD Landscape (1920×1080)', scale: 2 },
   '4k': { width: 3840, height: 2160, label: '4K Landscape (3840×2160)', scale: 1 },
   '8k': { width: 7680, height: 4320, label: '8K Ultra HD (7680×4320)', scale: 1 },
+  '8k-square': { width: 7680, height: 7680, label: '8K Square (7680×7680)', scale: 1 },
+  '8k-portrait': { width: 4320, height: 7680, label: '8K Portrait (4320×7680)', scale: 1 },
   'print-a4': { width: 2480, height: 3508, label: 'Print A4 (300dpi)', scale: 1 },
 };
 
@@ -47,7 +49,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   // Default to 8K for large networks (100+ entities), 4K for medium (50+), Twitter for small
   const getDefaultFormat = () => {
     const entityCount = network.entities.length;
-    if (entityCount > 100) return '8k';
+    // For large networks, use square format which fits better
+    if (entityCount > 100) return '8k-square';
     if (entityCount > 50) return '4k';
     return 'twitter';
   };
@@ -115,12 +118,12 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, width, height);
 
-    // Calculate layout areas
-    const padding = Math.max(30, width * 0.025);
-    const titleHeight = title ? Math.max(50, height * 0.08) : 0;
-    const subtitleHeight = subtitle ? Math.max(30, height * 0.04) : 0;
-    const legendHeight = showLegend ? Math.max(35, height * 0.05) : 0;
-    const watermarkHeight = showWatermark ? Math.max(25, height * 0.035) : 0;
+    // Calculate layout areas - minimized to maximize graph space
+    const padding = Math.max(20, width * 0.015);
+    const titleHeight = title ? Math.max(40, height * 0.04) : 0;
+    const subtitleHeight = subtitle ? Math.max(20, height * 0.02) : 0;
+    const legendHeight = showLegend ? Math.max(25, height * 0.025) : 0;
+    const watermarkHeight = showWatermark ? Math.max(20, height * 0.02) : 0;
     
     const graphTop = padding + titleHeight + subtitleHeight;
     const graphBottom = height - padding - legendHeight - watermarkHeight;
