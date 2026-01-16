@@ -205,7 +205,8 @@ export default function NetworkCanvas() {
 
     const drag = d3.drag<SVGGElement, SimulationNode>()
       .on('start', function(event, d) {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
+        // Use lower alpha to prevent other nodes from moving too much
+        if (!event.active) simulation.alphaTarget(0.1).restart();
         d.fx = d.x;
         d.fy = d.y;
       })
@@ -215,7 +216,15 @@ export default function NetworkCanvas() {
       })
       .on('end', function(event, d) {
         if (!event.active) simulation.alphaTarget(0);
-        updateEntity(d.id, { x: d.x, y: d.y, fx: d.x, fy: d.y });
+        // Release the node so it can settle naturally with the simulation
+        // Only keep it fixed if user explicitly wants to pin it
+        d.fx = null;
+        d.fy = null;
+        // Reset velocity to prevent jumpy behavior
+        d.vx = 0;
+        d.vy = 0;
+        // Save the final position
+        updateEntity(d.id, { x: d.x, y: d.y });
       });
 
     const nodeContainers = nodeGroup.selectAll<SVGGElement, SimulationNode>('g')
