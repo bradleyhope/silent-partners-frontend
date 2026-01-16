@@ -122,14 +122,35 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Clone and prepare SVG for rendering
     const svgClone = svgElement.cloneNode(true) as SVGSVGElement;
     
-    // Get the current viewBox or create one
-    const viewBox = svgElement.viewBox.baseVal;
-    const svgWidth = viewBox.width || svgElement.clientWidth || 800;
-    const svgHeight = viewBox.height || svgElement.clientHeight || 600;
+    // Get the current dimensions - use clientWidth/Height since viewBox may not be set
+    const svgWidth = svgElement.clientWidth || 800;
+    const svgHeight = svgElement.clientHeight || 600;
     
-    // Set explicit dimensions on clone
+    // Set explicit dimensions and viewBox on clone
     svgClone.setAttribute('width', String(svgWidth));
     svgClone.setAttribute('height', String(svgHeight));
+    svgClone.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+    
+    // Copy computed styles for all elements to ensure proper rendering
+    const copyStyles = (source: Element, target: Element) => {
+      const computed = window.getComputedStyle(source);
+      const important = ['fill', 'stroke', 'stroke-width', 'font-family', 'font-size', 'font-weight', 'opacity'];
+      important.forEach(prop => {
+        const value = computed.getPropertyValue(prop);
+        if (value) {
+          (target as HTMLElement).style.setProperty(prop, value);
+        }
+      });
+    };
+    
+    // Apply inline styles to key elements
+    const sourceElements = svgElement.querySelectorAll('circle, path, line, text, g');
+    const targetElements = svgClone.querySelectorAll('circle, path, line, text, g');
+    sourceElements.forEach((el, i) => {
+      if (targetElements[i]) {
+        copyStyles(el, targetElements[i]);
+      }
+    });
     
     // If no labels should be shown, hide them
     if (!showLabels) {
