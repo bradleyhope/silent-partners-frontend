@@ -66,7 +66,7 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit & { timeout?: number } = {}
   ): Promise<T> {
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
@@ -77,28 +77,43 @@ class ApiClient {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeout = options.timeout || 120000; // Default 120 seconds for long-running AI operations
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      
-      // Handle specific error codes
-      if (error.error_code === 'DOCUMENT_TOO_LARGE') {
-        const meta = error.metadata || {};
-        throw new DocumentTooLargeError(
-          error.error,
-          meta.estimated_pages || 0,
-          meta.max_pages_allowed || 20
-        );
+    try {
+      const response = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Request failed' }));
+        
+        // Handle specific error codes
+        if (error.error_code === 'DOCUMENT_TOO_LARGE') {
+          const meta = error.metadata || {};
+          throw new DocumentTooLargeError(
+            error.error,
+            meta.estimated_pages || 0,
+            meta.max_pages_allowed || 20
+          );
+        }
+        
+        throw new Error(error.error || `HTTP ${response.status}`);
       }
-      
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
 
-    return response.json();
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request timed out. The AI is taking longer than expected. Please try again.');
+      }
+      throw error;
+    }
   }
 
   // Health check
