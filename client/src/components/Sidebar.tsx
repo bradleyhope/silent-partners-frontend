@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText, Search, X, Trash2, Sparkles, Wand2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import api from '@/lib/api';
+import api, { DocumentTooLargeError } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCanvasTheme, CanvasTheme } from '@/contexts/CanvasThemeContext';
 import { generateId, Entity, Relationship } from '@/lib/store';
@@ -540,6 +540,8 @@ export default function Sidebar() {
   }, [network.entities]);
 
   // Handle PDF upload - client-side extraction then AI analysis
+  const MAX_PAGES = 20; // Maximum pages allowed
+  
   const handlePdfUpload = useCallback(async (file: File) => {
     if (!isPdfFile(file)) {
       toast.error('Please upload a PDF file');
@@ -560,16 +562,19 @@ export default function Sidebar() {
         return;
       }
       
+      // Check page count before sending to API
+      if (pdfResult.pageCount > MAX_PAGES) {
+        toast.error(
+          `Document too large: ${pdfResult.pageCount} pages detected. Maximum allowed is ${MAX_PAGES} pages. Please upload a smaller document or split it into sections.`,
+          { duration: 8000 }
+        );
+        return;
+      }
+      
       setUploadProgress(`Extracted ${pdfResult.pageCount} pages. Analyzing with AI...`);
       
       // Step 2: Send extracted text to AI for entity/relationship extraction
-      // Truncate if too long (API limit)
-      const maxTextLength = 50000;
-      const textToAnalyze = pdfResult.text.length > maxTextLength 
-        ? pdfResult.text.slice(0, maxTextLength) + '\n\n[Text truncated due to length...]'
-        : pdfResult.text;
-      
-      const result = await api.extract(textToAnalyze, 'gpt-5');
+      const result = await api.extract(pdfResult.text, 'gpt-5');
       
       if (!result.entities || result.entities.length === 0) {
         toast.warning('No entities found in the PDF');
@@ -616,7 +621,16 @@ export default function Sidebar() {
       toast.success(`Extracted ${entities.length} entities and ${relationships.length} connections from PDF (${pdfResult.pageCount} pages)`);
     } catch (error) {
       console.error('PDF upload error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to process PDF');
+      
+      // Handle specific error types
+      if (error instanceof DocumentTooLargeError) {
+        toast.error(
+          `Document too large: ~${error.estimatedPages} pages detected. Maximum allowed is ${error.maxPages} pages. Please upload a smaller document.`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.error(error instanceof Error ? error.message : 'Failed to process PDF');
+      }
     } finally {
       setIsProcessing(false);
       setUploadProgress(null);

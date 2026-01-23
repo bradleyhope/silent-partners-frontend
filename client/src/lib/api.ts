@@ -44,6 +44,19 @@ interface JobResponse {
   message?: string;
 }
 
+// Custom error for document size limits
+export class DocumentTooLargeError extends Error {
+  estimatedPages: number;
+  maxPages: number;
+  
+  constructor(message: string, estimatedPages: number, maxPages: number) {
+    super(message);
+    this.name = 'DocumentTooLargeError';
+    this.estimatedPages = estimatedPages;
+    this.maxPages = maxPages;
+  }
+}
+
 class ApiClient {
   private token: string | null = null;
 
@@ -71,6 +84,17 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: 'Request failed' }));
+      
+      // Handle specific error codes
+      if (error.error_code === 'DOCUMENT_TOO_LARGE') {
+        const meta = error.metadata || {};
+        throw new DocumentTooLargeError(
+          error.error,
+          meta.estimated_pages || 0,
+          meta.max_pages_allowed || 20
+        );
+      }
+      
       throw new Error(error.error || `HTTP ${response.status}`);
     }
 
