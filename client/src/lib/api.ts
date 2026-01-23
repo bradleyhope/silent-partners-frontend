@@ -135,8 +135,11 @@ class ApiClient {
     return this.request(`/jobs/${jobId}`);
   }
 
-  // Infer relationships between entities
-  async infer(entities: Array<{ id: string; name: string; type: string }>, relationships: Array<{ source: string; target: string }>): Promise<{
+  // Infer relationships between entities - aggressive mode with web search
+  async infer(
+    entities: Array<{ id: string; name: string; type: string; description?: string }>, 
+    relationships: Array<{ source: string; target: string; type?: string }>
+  ): Promise<{
     inferred_relationships: Array<{
       source: string;
       target: string;
@@ -144,7 +147,21 @@ class ApiClient {
       confidence: number;
       description: string;
       evidence: string;
+      category?: string;
     }>;
+    analysis?: {
+      total_possible_pairs: number;
+      existing_connections: number;
+      new_connections_found: number;
+      network_density_improvement: string;
+    };
+    metadata?: {
+      model: string;
+      web_search_used: boolean;
+      pairs_searched: number;
+      entities_analyzed: number;
+      existing_relationships: number;
+    };
   }> {
     return this.request('/infer', {
       method: 'POST',
@@ -335,7 +352,7 @@ class ApiClient {
     });
   }
 
-  // Find connection between two entities using AI
+  // Find connection between two entities using AI - returns a connected network
   async findConnection(
     entity1: string,
     entity2: string,
@@ -343,29 +360,35 @@ class ApiClient {
     contextRelationships?: Array<{ source: string; target: string; type?: string }>,
     model: string = 'gpt-5'
   ): Promise<{
-    direct_connection: {
-      exists: boolean;
-      type?: string;
-      description?: string;
-      confidence: 'high' | 'medium' | 'low';
-    };
-    indirect_paths: Array<{
-      path: string[];
-      description: string;
-      confidence: 'high' | 'medium' | 'low';
-    }>;
-    potential_connections: Array<{
+    connection_found: boolean;
+    connection_type?: 'direct' | 'through_intermediary' | 'through_organization' | 'circumstantial';
+    connection_strength?: 'strong' | 'moderate' | 'weak';
+    entities: Array<{
+      id: string;
+      name: string;
       type: string;
-      description: string;
-      evidence: string;
-      confidence: 'high' | 'medium' | 'low';
+      description?: string;
+      role_in_connection?: string;
     }>;
+    relationships: Array<{
+      source: string;
+      target: string;
+      type: string;
+      label?: string;
+      description?: string;
+      evidence?: string;
+      date?: string;
+    }>;
+    path_description?: string;
+    key_intermediaries?: string[];
     summary: string;
     metadata: {
       entity1: string;
       entity2: string;
       model: string;
-      tokens_used: number;
+      sources_searched?: number;
+      entities_count?: number;
+      relationships_count?: number;
     };
   }> {
     return this.request('/find-connection', {

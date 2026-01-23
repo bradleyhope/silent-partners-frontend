@@ -183,7 +183,7 @@ export default function Sidebar() {
     }
   }, [aiInput, aiMode, addEntitiesAndRelationships, clearNetwork]);
 
-  // Handle Find Connection mode
+  // Handle Find Connection mode - builds a connected network between two entities
   const handleConnectSubmit = useCallback(async () => {
     if (!aiInput.trim()) {
       toast.error('Please enter two names to find connections between');
@@ -193,7 +193,7 @@ export default function Sidebar() {
     setIsProcessing(true);
     
     try {
-      toast.info('Finding connections...', { duration: 15000 });
+      toast.info('Researching connections (this may take 15-30 seconds)...', { duration: 30000 });
       
       // Parse the input to extract two entity names
       // Support formats: "A and B", "A, B", "A to B", "A -> B"
@@ -218,19 +218,20 @@ export default function Sidebar() {
         return;
       }
       
-      // Call the find-connection API
+      // Call the find-connection API - now returns a full network
       const result = await api.findConnection(entity1, entity2, network.entities, network.relationships);
       
       if (!result.connection_found) {
-        toast.warning(`No direct connection found between ${entity1} and ${entity2}`);
+        toast.warning(`No connection found between ${entity1} and ${entity2}. Try different names or check spelling.`);
         return;
       }
       
-      // Add any new entities and relationships discovered
+      // The new API always returns entities and relationships
       if (result.entities && result.entities.length > 0) {
         const apiIdToOurId = new Map<string, string>();
         
-        const newEntities: Entity[] = result.entities.map((e: { id?: string; name: string; type?: string; description?: string; importance?: number }) => {
+        // Map API entity IDs to our generated IDs
+        const newEntities: Entity[] = result.entities.map((e) => {
           const ourId = generateId();
           if (e.id) apiIdToOurId.set(e.id, ourId);
           apiIdToOurId.set(e.name.toLowerCase(), ourId);
@@ -238,13 +239,14 @@ export default function Sidebar() {
           return {
             id: ourId,
             name: e.name,
-            type: (e.type as Entity['type']) || 'unknown',
-            description: e.description,
-            importance: e.importance || 5,
+            type: (e.type as Entity['type']) || 'person',
+            description: e.description || e.role_in_connection,
+            importance: 7, // Connection entities are important
           };
         });
         
-        const newRelationships: Relationship[] = (result.relationships || []).map((r: { source: string; target: string; type: string; label?: string }) => {
+        // Map relationships using the ID mapping
+        const newRelationships: Relationship[] = (result.relationships || []).map((r) => {
           const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase()) || r.source;
           const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase()) || r.target;
           
@@ -256,15 +258,35 @@ export default function Sidebar() {
             label: r.label || r.type,
           };
         }).filter((r: Relationship) => {
+          // Only include relationships where both entities exist
           const sourceExists = newEntities.some((e) => e.id === r.source) || network.entities.some((e) => e.id === r.source);
           const targetExists = newEntities.some((e) => e.id === r.target) || network.entities.some((e) => e.id === r.target);
           return sourceExists && targetExists;
         });
         
+        // Clear network if in 'new' mode, otherwise add to existing
+        if (aiMode === 'new') {
+          clearNetwork();
+        }
+        
         addEntitiesAndRelationships(newEntities, newRelationships);
-        toast.success(`Found connection! Added ${newEntities.length} entities and ${newRelationships.length} relationships`);
+        
+        // Show success with connection details
+        const strengthLabel = result.connection_strength === 'strong' ? '🔗 Strong' : 
+                             result.connection_strength === 'moderate' ? '🔗 Moderate' : '🔗 Weak';
+        toast.success(
+          `${strengthLabel} connection found! Added ${newEntities.length} entities and ${newRelationships.length} relationships.`,
+          { duration: 5000 }
+        );
+        
+        // Show summary if available
+        if (result.summary) {
+          setTimeout(() => {
+            toast.info(result.summary, { duration: 8000 });
+          }, 1000);
+        }
       } else {
-        toast.success(`Connection found: ${result.explanation || 'See the path in the graph'}`);
+        toast.warning('Connection analysis complete but no network data returned.');
       }
       
       setAiInput('');
@@ -275,7 +297,7 @@ export default function Sidebar() {
     } finally {
       setIsProcessing(false);
     }
-  }, [aiInput, network.entities, network.relationships, addEntitiesAndRelationships]);
+  }, [aiInput, aiMode, network.entities, network.relationships, addEntitiesAndRelationships, clearNetwork]);
 
   // Load example network from pre-built data
   const handleLoadExample = useCallback(async (exampleId: string) => {
@@ -849,67 +871,68 @@ export default function Sidebar() {
     }
     
     setIsFindingLinks(true);
-    toast.info('Analyzing network for missing connections...');
+    toast.info('Aggressively searching for missing connections (this may take 20-30 seconds)...', { duration: 30000 });
     
     try {
-      // First try the /api/infer endpoint
+      // Use the improved /api/infer endpoint with web search enabled
       let newRelationships: Relationship[] = [];
       
-      try {
-        const result = await api.infer(
-          network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
-          network.relationships.map(r => ({ source: r.source, target: r.target }))
-        );
+      // Build entity name to ID mapping for later
+      const entityNameToId = new Map(network.entities.map(e => [e.name.toLowerCase(), e.id]));
+      const entityIdToName = new Map(network.entities.map(e => [e.id, e.name]));
+      
+      const result = await api.infer(
+        network.entities.map(e => ({ 
+          id: e.id, 
+          name: e.name, 
+          type: e.type,
+          description: e.description || ''
+        })),
+        network.relationships.map(r => ({ 
+          source: r.source, 
+          target: r.target,
+          type: r.type 
+        }))
+      );
+      
+      if (result.inferred_relationships && result.inferred_relationships.length > 0) {
+        // Lower confidence threshold to 0.3 for more aggressive finding
+        const validRelationships = result.inferred_relationships.filter(ir => ir.confidence >= 0.3);
         
-        if (result.inferred_relationships && result.inferred_relationships.length > 0) {
-          newRelationships = result.inferred_relationships
-            .filter(ir => ir.confidence > 0.5)
-            .map(ir => ({
-              id: generateId(),
-              source: ir.source,
-              target: ir.target,
-              type: ir.type,
-              label: ir.description || ir.type,
-            }));
-        }
-      } catch (inferError) {
-        console.warn('Infer API failed, falling back to extract:', inferError);
-        
-        // Fallback: Use /api/extract to find relationships
-        const entityNames = network.entities.map(e => e.name).join(', ');
-        const existingRels = network.relationships.map(r => {
-          const source = network.entities.find(e => e.id === r.source);
-          const target = network.entities.find(e => e.id === r.target);
-          return source && target ? `${source.name} - ${target.name}` : null;
-        }).filter(Boolean).join('; ');
-        
-        const prompt = `Given these entities: ${entityNames}\n\nAnd these existing relationships: ${existingRels || 'none'}\n\n` +
-          `Find additional relationships between these entities that are not already listed. ` +
-          `Focus on business connections, financial ties, organizational relationships, and personal connections.`;
-        
-        const result = await api.extract(prompt, 'gpt-5');
-        
-        if (result.relationships && result.relationships.length > 0) {
-          const entityNameToId = new Map(network.entities.map(e => [e.name.toLowerCase(), e.id]));
+        for (const ir of validRelationships) {
+          // Try to match source/target by ID first, then by name
+          let sourceId = ir.source;
+          let targetId = ir.target;
           
-          for (const rel of result.relationships) {
-            const sourceId = entityNameToId.get(rel.source.toLowerCase());
-            const targetId = entityNameToId.get(rel.target.toLowerCase());
+          // If source/target are names, convert to IDs
+          if (!network.entities.some(e => e.id === sourceId)) {
+            sourceId = entityNameToId.get(ir.source.toLowerCase()) || '';
+          }
+          if (!network.entities.some(e => e.id === targetId)) {
+            targetId = entityNameToId.get(ir.target.toLowerCase()) || '';
+          }
+          
+          if (sourceId && targetId && sourceId !== targetId) {
+            // Check if relationship already exists (in either direction)
+            const exists = network.relationships.some(
+              r => (r.source === sourceId && r.target === targetId) ||
+                   (r.source === targetId && r.target === sourceId)
+            );
             
-            if (sourceId && targetId && sourceId !== targetId) {
-              // Check if relationship already exists
-              const exists = network.relationships.some(
+            if (!exists) {
+              // Also check if we already added this relationship
+              const alreadyAdded = newRelationships.some(
                 r => (r.source === sourceId && r.target === targetId) ||
                      (r.source === targetId && r.target === sourceId)
               );
               
-              if (!exists) {
+              if (!alreadyAdded) {
                 newRelationships.push({
                   id: generateId(),
                   source: sourceId,
                   target: targetId,
-                  type: rel.type,
-                  label: rel.label || rel.type,
+                  type: ir.type || 'connected_to',
+                  label: ir.description || ir.type || 'inferred connection',
                 });
               }
             }
@@ -919,9 +942,25 @@ export default function Sidebar() {
       
       if (newRelationships.length > 0) {
         addEntitiesAndRelationships([], newRelationships);
-        toast.success(`Found ${newRelationships.length} missing connection${newRelationships.length > 1 ? 's' : ''}`);
+        
+        // Show detailed success message
+        const webSearchUsed = result.metadata?.web_search_used ? ' (with web search)' : '';
+        toast.success(
+          `Found ${newRelationships.length} missing connection${newRelationships.length > 1 ? 's' : ''}${webSearchUsed}!`,
+          { duration: 5000 }
+        );
+        
+        // Show analysis summary if available
+        if (result.analysis) {
+          const improvement = result.analysis.network_density_improvement;
+          if (improvement) {
+            setTimeout(() => {
+              toast.info(`Network density improved by ${improvement}`, { duration: 4000 });
+            }, 1000);
+          }
+        }
       } else {
-        toast.info('No additional connections found');
+        toast.info('No additional connections found. The network may already be well-connected.');
       }
     } catch (error) {
       console.error('Find links error:', error);
