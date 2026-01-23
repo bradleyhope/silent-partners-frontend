@@ -262,6 +262,123 @@ class ApiClient {
       }),
     });
   }
+
+  // Estimate processing cost and time for a document
+  async estimateProcessing(text: string): Promise<{
+    estimate: {
+      total_pages: number;
+      total_sections: number;
+      estimated_tokens: number;
+      estimated_cost: number;
+      estimated_time_minutes: number;
+      section_breakdown: Array<{ section: number; pages: string; estimated_cost: number }>;
+    };
+    recommendations: {
+      incremental: boolean;
+      message: string;
+      estimated_cost: string;
+      estimated_time: string;
+    };
+  }> {
+    return this.request('/estimate', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  // Incremental extraction - add a section to existing network
+  async extractIncremental(
+    text: string,
+    existingEntities: Array<{ id: string; name: string; type: string }>,
+    existingRelationships: Array<{ source: string; target: string }>,
+    resolutionMap?: Record<string, string>,
+    sectionsProcessed?: number,
+    model: string = 'gpt-5-nano'
+  ): Promise<{
+    network: {
+      entities: Array<{ id: string; name: string; type: string; description?: string }>;
+      relationships: Array<{ source: string; target: string; type?: string }>;
+    };
+    section_result: {
+      section_number: number;
+      total_sections: number;
+      entities_found: number;
+      entities_merged: number;
+      entities_new: number;
+      relationships_found: number;
+      cross_relationships_found: number;
+      tokens_used: number;
+      cost: number;
+      processing_time: number;
+    };
+    metadata: {
+      total_entities: number;
+      total_relationships: number;
+      entities_merged: number;
+      entities_new: number;
+      cross_relationships_found: number;
+      sections_processed: number;
+    };
+    _resolution_map: Record<string, string>;
+    _sections_processed: number;
+  }> {
+    return this.request('/extract/incremental', {
+      method: 'POST',
+      body: JSON.stringify({
+        text,
+        entities: existingEntities,
+        relationships: existingRelationships,
+        _resolution_map: resolutionMap || {},
+        _sections_processed: sectionsProcessed || 0,
+        model,
+      }),
+    });
+  }
+
+  // Find connection between two entities using AI
+  async findConnection(
+    entity1: string,
+    entity2: string,
+    contextEntities?: Array<{ id?: string; name: string; type?: string; description?: string }>,
+    contextRelationships?: Array<{ source: string; target: string; type?: string }>,
+    model: string = 'gpt-5'
+  ): Promise<{
+    direct_connection: {
+      exists: boolean;
+      type?: string;
+      description?: string;
+      confidence: 'high' | 'medium' | 'low';
+    };
+    indirect_paths: Array<{
+      path: string[];
+      description: string;
+      confidence: 'high' | 'medium' | 'low';
+    }>;
+    potential_connections: Array<{
+      type: string;
+      description: string;
+      evidence: string;
+      confidence: 'high' | 'medium' | 'low';
+    }>;
+    summary: string;
+    metadata: {
+      entity1: string;
+      entity2: string;
+      model: string;
+      tokens_used: number;
+    };
+  }> {
+    return this.request('/find-connection', {
+      method: 'POST',
+      body: JSON.stringify({
+        entity1,
+        entity2,
+        entities: contextEntities || [],
+        relationships: contextRelationships || [],
+        model,
+      }),
+    });
+  }
 }
 
 export const api = new ApiClient();

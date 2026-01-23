@@ -87,6 +87,8 @@ export default function Sidebar() {
   const [isFindingLinks, setIsFindingLinks] = useState(false);
   const [isEnrichingAll, setIsEnrichingAll] = useState(false);
   const [toolPrompt, setToolPrompt] = useState('');
+  const [isFindingConnection, setIsFindingConnection] = useState(false);
+  const [selectedForConnection, setSelectedForConnection] = useState<string[]>([]);
 
   // Handle AI extraction/discovery
   const handleAiSubmit = useCallback(async () => {
@@ -930,6 +932,112 @@ export default function Sidebar() {
     }
   }, [network.entities, network.relationships, dispatch, addEntitiesAndRelationships]);
 
+  // Tool: Find connection between two entities
+  const handleFindConnection = useCallback(async () => {
+    if (selectedForConnection.length !== 2) {
+      toast.error('Please select exactly two entities to find connections between');
+      return;
+    }
+
+    const entity1 = network.entities.find(e => e.id === selectedForConnection[0]);
+    const entity2 = network.entities.find(e => e.id === selectedForConnection[1]);
+
+    if (!entity1 || !entity2) {
+      toast.error('Selected entities not found');
+      return;
+    }
+
+    setIsFindingConnection(true);
+    toast.info(`Finding connections between ${entity1.name} and ${entity2.name}...`);
+
+    try {
+      const result = await api.findConnection(
+        entity1.name,
+        entity2.name,
+        network.entities.map(e => ({ name: e.name, type: e.type, description: e.description })),
+        network.relationships.map(r => {
+          const source = network.entities.find(e => e.id === r.source);
+          const target = network.entities.find(e => e.id === r.target);
+          return { source: source?.name || r.source, target: target?.name || r.target, type: r.type };
+        }),
+        'gpt-5'
+      );
+
+      // Show results
+      let message = result.summary;
+      
+      // Add new relationships if found
+      const newRelationships: Relationship[] = [];
+      
+      if (result.direct_connection?.exists) {
+        // Check if this relationship already exists
+        const exists = network.relationships.some(
+          r => (r.source === entity1.id && r.target === entity2.id) ||
+               (r.source === entity2.id && r.target === entity1.id)
+        );
+        
+        if (!exists) {
+          newRelationships.push({
+            id: generateId(),
+            source: entity1.id,
+            target: entity2.id,
+            type: result.direct_connection.type || 'connected',
+            label: result.direct_connection.description || result.direct_connection.type,
+          });
+        }
+      }
+
+      // Add potential connections as suspected relationships
+      for (const potential of result.potential_connections || []) {
+        if (potential.confidence === 'high' || potential.confidence === 'medium') {
+          const exists = network.relationships.some(
+            r => (r.source === entity1.id && r.target === entity2.id) ||
+                 (r.source === entity2.id && r.target === entity1.id)
+          );
+          
+          if (!exists && newRelationships.length === 0) {
+            newRelationships.push({
+              id: generateId(),
+              source: entity1.id,
+              target: entity2.id,
+              type: potential.type || 'suspected',
+              label: potential.description,
+            });
+          }
+        }
+      }
+
+      if (newRelationships.length > 0) {
+        addEntitiesAndRelationships([], newRelationships);
+        toast.success(`Found connection! Added ${newRelationships.length} relationship(s). ${message}`, { duration: 8000 });
+      } else {
+        toast.info(message || 'No direct connection found, but check the analysis for potential links.', { duration: 8000 });
+      }
+
+      // Clear selection
+      setSelectedForConnection([]);
+    } catch (error) {
+      console.error('Find connection error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to find connection');
+    } finally {
+      setIsFindingConnection(false);
+    }
+  }, [selectedForConnection, network.entities, network.relationships, addEntitiesAndRelationships]);
+
+  // Toggle entity selection for Find Connection
+  const toggleEntityForConnection = useCallback((entityId: string) => {
+    setSelectedForConnection(prev => {
+      if (prev.includes(entityId)) {
+        return prev.filter(id => id !== entityId);
+      } else if (prev.length < 2) {
+        return [...prev, entityId];
+      } else {
+        // Replace the first one
+        return [prev[1], entityId];
+      }
+    });
+  }, []);
+
   // Tool: Custom prompt to modify graph
   const handleToolPrompt = useCallback(async () => {
     if (!toolPrompt.trim()) {
@@ -1400,6 +1508,61 @@ export default function Sidebar() {
               <span className="ml-auto text-[10px] text-muted-foreground">(first 10)</span>
             )}
           </Button>
+
+          {/* Find Connection */}
+          <div className="pt-2 border-t border-border space-y-2">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <Link className="w-3 h-3" /> Find Connection
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Select two entities to discover connections between them.
+            </p>
+            <div className="space-y-2">
+              <Select
+                value={selectedForConnection[0] || ''}
+                onValueChange={(value) => setSelectedForConnection(prev => [value, prev[1] || ''])}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select first entity..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {network.entities.map(entity => (
+                    <SelectItem key={entity.id} value={entity.id} className="text-xs">
+                      {entity.name} ({entity.type})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={selectedForConnection[1] || ''}
+                onValueChange={(value) => setSelectedForConnection(prev => [prev[0] || '', value])}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Select second entity..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {network.entities.filter(e => e.id !== selectedForConnection[0]).map(entity => (
+                    <SelectItem key={entity.id} value={entity.id} className="text-xs">
+                      {entity.name} ({entity.type})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              size="sm"
+              className="w-full h-7 text-xs"
+              onClick={handleFindConnection}
+              disabled={isFindingConnection || selectedForConnection.filter(Boolean).length !== 2}
+            >
+              {isFindingConnection ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Link className="w-3 h-3 mr-1" />
+              )}
+              Find Connection
+            </Button>
+          </div>
 
           {/* Custom Prompt */}
           <div className="pt-2 border-t border-border space-y-2">
