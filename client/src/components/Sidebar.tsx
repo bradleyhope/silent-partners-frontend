@@ -56,6 +56,7 @@ export default function Sidebar() {
   
   // AI input state
   const [aiInput, setAiInput] = useState('');
+  const [aiActionMode, setAiActionMode] = useState<'extract' | 'discover' | 'connect'>('extract');
   const [aiMode, setAiMode] = useState<'add' | 'new'>('add');
   const [isProcessing, setIsProcessing] = useState(false);
   
@@ -87,8 +88,7 @@ export default function Sidebar() {
   const [isFindingLinks, setIsFindingLinks] = useState(false);
   const [isEnrichingAll, setIsEnrichingAll] = useState(false);
   const [toolPrompt, setToolPrompt] = useState('');
-  const [isFindingConnection, setIsFindingConnection] = useState(false);
-  const [selectedForConnection, setSelectedForConnection] = useState<string[]>([]);
+
 
   // Handle AI extraction/discovery
   const handleAiSubmit = useCallback(async () => {
@@ -182,6 +182,100 @@ export default function Sidebar() {
       setIsProcessing(false);
     }
   }, [aiInput, aiMode, addEntitiesAndRelationships, clearNetwork]);
+
+  // Handle Find Connection mode
+  const handleConnectSubmit = useCallback(async () => {
+    if (!aiInput.trim()) {
+      toast.error('Please enter two names to find connections between');
+      return;
+    }
+
+    setIsProcessing(true);
+    
+    try {
+      toast.info('Finding connections...', { duration: 15000 });
+      
+      // Parse the input to extract two entity names
+      // Support formats: "A and B", "A, B", "A to B", "A -> B"
+      const input = aiInput.trim();
+      let entity1 = '';
+      let entity2 = '';
+      
+      const separators = [' and ', ', ', ' to ', ' -> ', ' & '];
+      for (const sep of separators) {
+        if (input.toLowerCase().includes(sep)) {
+          const parts = input.split(new RegExp(sep, 'i'));
+          if (parts.length >= 2) {
+            entity1 = parts[0].trim();
+            entity2 = parts[1].trim();
+            break;
+          }
+        }
+      }
+      
+      if (!entity1 || !entity2) {
+        toast.error('Please enter two names separated by "and", ",", or "to"');
+        return;
+      }
+      
+      // Call the find-connection API
+      const result = await api.findConnection(entity1, entity2, network.entities, network.relationships);
+      
+      if (!result.connection_found) {
+        toast.warning(`No direct connection found between ${entity1} and ${entity2}`);
+        return;
+      }
+      
+      // Add any new entities and relationships discovered
+      if (result.entities && result.entities.length > 0) {
+        const apiIdToOurId = new Map<string, string>();
+        
+        const newEntities: Entity[] = result.entities.map((e: { id?: string; name: string; type?: string; description?: string; importance?: number }) => {
+          const ourId = generateId();
+          if (e.id) apiIdToOurId.set(e.id, ourId);
+          apiIdToOurId.set(e.name.toLowerCase(), ourId);
+          
+          return {
+            id: ourId,
+            name: e.name,
+            type: (e.type as Entity['type']) || 'unknown',
+            description: e.description,
+            importance: e.importance || 5,
+          };
+        });
+        
+        const newRelationships: Relationship[] = (result.relationships || []).map((r: { source: string; target: string; type: string; label?: string }) => {
+          const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase()) || r.source;
+          const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase()) || r.target;
+          
+          return {
+            id: generateId(),
+            source: sourceId,
+            target: targetId,
+            type: r.type,
+            label: r.label || r.type,
+          };
+        }).filter((r: Relationship) => {
+          const sourceExists = newEntities.some((e) => e.id === r.source) || network.entities.some((e) => e.id === r.source);
+          const targetExists = newEntities.some((e) => e.id === r.target) || network.entities.some((e) => e.id === r.target);
+          return sourceExists && targetExists;
+        });
+        
+        addEntitiesAndRelationships(newEntities, newRelationships);
+        toast.success(`Found connection! Added ${newEntities.length} entities and ${newRelationships.length} relationships`);
+      } else {
+        toast.success(`Connection found: ${result.explanation || 'See the path in the graph'}`);
+      }
+      
+      setAiInput('');
+      
+    } catch (error) {
+      console.error('Find connection error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to find connection. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [aiInput, network.entities, network.relationships, addEntitiesAndRelationships]);
 
   // Load example network from pre-built data
   const handleLoadExample = useCallback(async (exampleId: string) => {
@@ -932,112 +1026,6 @@ export default function Sidebar() {
     }
   }, [network.entities, network.relationships, dispatch, addEntitiesAndRelationships]);
 
-  // Tool: Find connection between two entities
-  const handleFindConnection = useCallback(async () => {
-    if (selectedForConnection.length !== 2) {
-      toast.error('Please select exactly two entities to find connections between');
-      return;
-    }
-
-    const entity1 = network.entities.find(e => e.id === selectedForConnection[0]);
-    const entity2 = network.entities.find(e => e.id === selectedForConnection[1]);
-
-    if (!entity1 || !entity2) {
-      toast.error('Selected entities not found');
-      return;
-    }
-
-    setIsFindingConnection(true);
-    toast.info(`Finding connections between ${entity1.name} and ${entity2.name}...`);
-
-    try {
-      const result = await api.findConnection(
-        entity1.name,
-        entity2.name,
-        network.entities.map(e => ({ name: e.name, type: e.type, description: e.description })),
-        network.relationships.map(r => {
-          const source = network.entities.find(e => e.id === r.source);
-          const target = network.entities.find(e => e.id === r.target);
-          return { source: source?.name || r.source, target: target?.name || r.target, type: r.type };
-        }),
-        'gpt-5'
-      );
-
-      // Show results
-      let message = result.summary;
-      
-      // Add new relationships if found
-      const newRelationships: Relationship[] = [];
-      
-      if (result.direct_connection?.exists) {
-        // Check if this relationship already exists
-        const exists = network.relationships.some(
-          r => (r.source === entity1.id && r.target === entity2.id) ||
-               (r.source === entity2.id && r.target === entity1.id)
-        );
-        
-        if (!exists) {
-          newRelationships.push({
-            id: generateId(),
-            source: entity1.id,
-            target: entity2.id,
-            type: result.direct_connection.type || 'connected',
-            label: result.direct_connection.description || result.direct_connection.type,
-          });
-        }
-      }
-
-      // Add potential connections as suspected relationships
-      for (const potential of result.potential_connections || []) {
-        if (potential.confidence === 'high' || potential.confidence === 'medium') {
-          const exists = network.relationships.some(
-            r => (r.source === entity1.id && r.target === entity2.id) ||
-                 (r.source === entity2.id && r.target === entity1.id)
-          );
-          
-          if (!exists && newRelationships.length === 0) {
-            newRelationships.push({
-              id: generateId(),
-              source: entity1.id,
-              target: entity2.id,
-              type: potential.type || 'suspected',
-              label: potential.description,
-            });
-          }
-        }
-      }
-
-      if (newRelationships.length > 0) {
-        addEntitiesAndRelationships([], newRelationships);
-        toast.success(`Found connection! Added ${newRelationships.length} relationship(s). ${message}`, { duration: 8000 });
-      } else {
-        toast.info(message || 'No direct connection found, but check the analysis for potential links.', { duration: 8000 });
-      }
-
-      // Clear selection
-      setSelectedForConnection([]);
-    } catch (error) {
-      console.error('Find connection error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to find connection');
-    } finally {
-      setIsFindingConnection(false);
-    }
-  }, [selectedForConnection, network.entities, network.relationships, addEntitiesAndRelationships]);
-
-  // Toggle entity selection for Find Connection
-  const toggleEntityForConnection = useCallback((entityId: string) => {
-    setSelectedForConnection(prev => {
-      if (prev.includes(entityId)) {
-        return prev.filter(id => id !== entityId);
-      } else if (prev.length < 2) {
-        return [...prev, entityId];
-      } else {
-        // Replace the first one
-        return [prev[1], entityId];
-      }
-    });
-  }, []);
-
   // Tool: Custom prompt to modify graph
   const handleToolPrompt = useCallback(async () => {
     if (!toolPrompt.trim()) {
@@ -1270,16 +1258,56 @@ export default function Sidebar() {
           <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${aiOpen ? '' : '-rotate-90'}`} />
         </CollapsibleTrigger>
         <CollapsibleContent className="px-4 pb-4 space-y-3">
+          {/* AI Action Mode Toggle */}
+          <div className="flex gap-1 p-1 bg-muted rounded-lg">
+            <button
+              onClick={() => setAiActionMode('extract')}
+              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                aiActionMode === 'extract'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Extract
+            </button>
+            <button
+              onClick={() => setAiActionMode('discover')}
+              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                aiActionMode === 'discover'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Discover
+            </button>
+            <button
+              onClick={() => setAiActionMode('connect')}
+              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
+                aiActionMode === 'connect'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Connect
+            </button>
+          </div>
+
           <Textarea
             value={aiInput}
             onChange={(e) => setAiInput(e.target.value)}
             className="text-sm bg-background resize-none min-h-[100px]"
-            placeholder="Paste an article, ask a question, or describe what you want to map..."
+            placeholder={
+              aiActionMode === 'extract'
+                ? 'Paste an article or document text to extract entities and relationships...'
+                : aiActionMode === 'discover'
+                ? 'Ask a question like "Who are the key investors in SpaceX?"'
+                : 'Enter two names like "Elon Musk and Peter Thiel" to find connections...'
+            }
             disabled={isProcessing}
           />
           
           <Button 
-            onClick={handleAiSubmit} 
+            onClick={aiActionMode === 'connect' ? handleConnectSubmit : handleAiSubmit} 
             disabled={isProcessing || !aiInput.trim()}
             className="w-full bg-primary hover:bg-primary/90"
           >
@@ -1288,8 +1316,12 @@ export default function Sidebar() {
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Processing...
               </>
-            ) : (
+            ) : aiActionMode === 'extract' ? (
               'Extract Network'
+            ) : aiActionMode === 'discover' ? (
+              'Discover Connections'
+            ) : (
+              <><Link className="w-4 h-4 mr-2" />Find Connection</>
             )}
           </Button>
 
@@ -1508,61 +1540,6 @@ export default function Sidebar() {
               <span className="ml-auto text-[10px] text-muted-foreground">(first 10)</span>
             )}
           </Button>
-
-          {/* Find Connection */}
-          <div className="pt-2 border-t border-border space-y-2">
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-              <Link className="w-3 h-3" /> Find Connection
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Select two entities to discover connections between them.
-            </p>
-            <div className="space-y-2">
-              <Select
-                value={selectedForConnection[0] || ''}
-                onValueChange={(value) => setSelectedForConnection(prev => [value, prev[1] || ''])}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select first entity..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {network.entities.map(entity => (
-                    <SelectItem key={entity.id} value={entity.id} className="text-xs">
-                      {entity.name} ({entity.type})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={selectedForConnection[1] || ''}
-                onValueChange={(value) => setSelectedForConnection(prev => [prev[0] || '', value])}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select second entity..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {network.entities.filter(e => e.id !== selectedForConnection[0]).map(entity => (
-                    <SelectItem key={entity.id} value={entity.id} className="text-xs">
-                      {entity.name} ({entity.type})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              size="sm"
-              className="w-full h-7 text-xs"
-              onClick={handleFindConnection}
-              disabled={isFindingConnection || selectedForConnection.filter(Boolean).length !== 2}
-            >
-              {isFindingConnection ? (
-                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-              ) : (
-                <Link className="w-3 h-3 mr-1" />
-              )}
-              Find Connection
-            </Button>
-          </div>
 
           {/* Custom Prompt */}
           <div className="pt-2 border-t border-border space-y-2">
