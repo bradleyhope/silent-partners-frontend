@@ -6,6 +6,7 @@
  */
 
 const API_BASE = 'https://silent-partners-ai-api.onrender.com/api';
+const API_V3 = 'https://silent-partners-ai-api.onrender.com/api/v3';
 
 // Event types from the backend
 export type PipelineEventType = 
@@ -19,7 +20,13 @@ export type PipelineEventType =
   | 'validation_fixed'
   | 'pipeline_progress'
   | 'pipeline_complete'
-  | 'pipeline_error';
+  | 'pipeline_error'
+  // v3 interleaved events
+  | 'extraction_started'
+  | 'extraction_complete'
+  | 'research_started'
+  | 'research_found'
+  | 'research_complete';
 
 export interface PipelineEntity {
   id: string;
@@ -116,7 +123,8 @@ export interface PipelineOptions {
 }
 
 /**
- * Stream graph construction from the pipeline API.
+ * Stream graph construction from the v3 interleaved API.
+ * Entities appear with their relationships immediately.
  * Returns an abort function to cancel the stream.
  */
 export function streamPipeline(
@@ -129,16 +137,18 @@ export function streamPipeline(
   
   const runStream = async () => {
     try {
-      const response = await fetch(`${API_BASE}/pipeline/stream`, {
+      // Use v3 interleaved endpoint for better UX
+      const response = await fetch(`${API_V3}/extract`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
         },
         body: JSON.stringify({
-          source_type: sourceType,
-          source_data: sourceData,
-          options,
+          text: sourceData,
+          batch_size: 3,
+          max_entities: options.max_entities || 30,
+          stream: true,
         }),
         signal: abortController.signal,
       });
@@ -200,7 +210,8 @@ export function streamPipeline(
 }
 
 /**
- * Research connections between two entities with streaming.
+ * Research connections between two entities with v3 interleaved streaming.
+ * Target entities appear immediately, then intermediaries stream in with relationships.
  */
 export function streamResearch(
   entity1: string,
@@ -212,7 +223,8 @@ export function streamResearch(
   
   const runStream = async () => {
     try {
-      const response = await fetch(`${API_BASE}/pipeline/research`, {
+      // Use v3 interleaved research endpoint
+      const response = await fetch(`${API_V3}/research`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -221,8 +233,8 @@ export function streamResearch(
         body: JSON.stringify({
           entity1,
           entity2,
+          batch_size: 3,
           stream: true,
-          options,
         }),
         signal: abortController.signal,
       });
@@ -366,7 +378,34 @@ export async function researchConnection(
  * Handle individual pipeline events and dispatch to callbacks.
  */
 function handleEvent(event: PipelineEvent, callbacks: StreamingCallbacks) {
+  // Handle v3 interleaved events with entities array
+  const eventData = event.data as any;
+  
   switch (event.type) {
+    // v3 interleaved events
+    case 'extraction_started':
+    case 'research_started':
+      callbacks.onStart?.('', 'extraction');
+      break;
+
+    case 'extraction_complete':
+    case 'research_complete':
+      callbacks.onComplete?.({
+        entities: [],
+        relationships: []
+      }, {
+        entities_found: eventData.total_entities || 0,
+        relationships_found: eventData.total_relationships || 0,
+        cross_references: 0,
+        validation_fixes: 0
+      });
+      break;
+
+    case 'research_found':
+      callbacks.onProgress?.(eventData.message || 'Research data found', undefined);
+      break;
+
+    // Legacy events
     case 'pipeline_started':
       callbacks.onStart?.(
         event.data.pipeline_id || '',
@@ -383,7 +422,12 @@ function handleEvent(event: PipelineEvent, callbacks: StreamingCallbacks) {
       break;
 
     case 'entity_found':
-      if (event.data.entity) {
+      // v3 sends entities as an array
+      if (eventData.entities && Array.isArray(eventData.entities)) {
+        for (const entity of eventData.entities) {
+          callbacks.onEntityFound?.(entity, true);
+        }
+      } else if (event.data.entity) {
         callbacks.onEntityFound?.(event.data.entity, event.data.is_new ?? true);
       }
       break;
