@@ -26,6 +26,7 @@ export interface StreamingState {
   entitiesFound: number;
   relationshipsFound: number;
   error: string | null;
+  currentEntity: string | null;  // Entity currently being processed
 }
 
 export interface UseStreamingPipelineReturn {
@@ -61,6 +62,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
     entitiesFound: 0,
     relationshipsFound: 0,
     error: null,
+    currentEntity: null,
   });
   
   // Track entity ID mapping (pipeline ID -> our ID)
@@ -80,6 +82,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
       entitiesFound: 0,
       relationshipsFound: 0,
       error: null,
+      currentEntity: null,
     });
   }, []);
   
@@ -122,6 +125,31 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
       
       onPhaseComplete: (phase) => {
         // Phase complete, progress continues
+      },
+      
+      onSearching: (message, entity) => {
+        setState(s => ({ 
+          ...s, 
+          progress: message,
+          currentEntity: entity || null,
+          phase: 'Discovering entities...'
+        }));
+      },
+      
+      onConnecting: (entity) => {
+        setState(s => ({ 
+          ...s, 
+          progress: `Finding connections for ${entity}...`,
+          currentEntity: entity,
+          phase: 'Building connections...'
+        }));
+      },
+      
+      onEntityMerged: (entity, message) => {
+        setState(s => ({ 
+          ...s, 
+          progress: message || `Merged: ${entity.name}`
+        }));
       },
       
       onEntityFound: (pipelineEntity, isNew) => {
@@ -249,6 +277,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
       entitiesFound: 0,
       relationshipsFound: 0,
       error: null,
+      currentEntity: null,
     });
     
     // Include existing entities for cross-referencing if not clearing
@@ -306,6 +335,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
       entitiesFound: 0,
       relationshipsFound: 0,
       error: null,
+      currentEntity: null,
     });
     
     // Include existing entities for cross-referencing
