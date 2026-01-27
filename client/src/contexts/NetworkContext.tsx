@@ -192,8 +192,8 @@ const NetworkContext = createContext<NetworkContextValue | null>(null);
 export function NetworkProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(networkReducer, initialState);
 
-  const addEntity = useCallback((entity: Omit<Entity, 'id'>) => {
-    dispatch({ type: 'ADD_ENTITY', payload: { ...entity, id: generateId() } });
+  const addEntity = useCallback((entity: Omit<Entity, 'id'> & { id?: string }) => {
+    dispatch({ type: 'ADD_ENTITY', payload: { ...entity, id: entity.id || generateId() } });
   }, []);
 
   const updateEntity = useCallback((id: string, updates: Partial<Entity>) => {

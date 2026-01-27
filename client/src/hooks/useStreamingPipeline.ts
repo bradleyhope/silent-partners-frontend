@@ -141,8 +141,9 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
         entityIdMap.current.set(pipelineEntity.id, entity.id);
         entityIdMap.current.set(pipelineEntity.name.toLowerCase(), entity.id);
         
-        // Add to network
+        // Add to network with our generated ID
         addEntity({
+          id: entity.id,  // Pass the ID we generated so it matches our mapping
           name: entity.name,
           type: entity.type,
           description: entity.description,
