@@ -142,13 +142,16 @@ export default function NetworkCanvas() {
       }));
 
     const simulation = d3.forceSimulation<SimulationNode>(nodes)
-      .force('link', d3.forceLink<SimulationNode, SimulationLink>(links)
+      .force('link', d3.forceLink<SimulationLink, SimulationNode>(links)
         .id((d) => d.id)
         .distance(200)
         .strength(0.2))
       .force('charge', d3.forceManyBody().strength(-600))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide().radius(60));
+      .force('collision', d3.forceCollide().radius(60))
+      // Slow down animation for a more pleasant, watchable experience
+      .alphaDecay(0.01)  // Slower decay = longer animation (default is 0.0228)
+      .velocityDecay(0.4);  // More friction = smoother movement (default is 0.4)
 
     simulationRef.current = simulation;
 

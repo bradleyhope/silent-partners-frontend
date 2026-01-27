@@ -125,7 +125,15 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
       },
       
       onEntityFound: (pipelineEntity, isNew) => {
-        if (!isNew) return; // Skip duplicates
+        if (!isNew) return; // Skip duplicates from backend
+        
+        // Check if we already have this entity (by name)
+        const existingId = entityIdMap.current.get(pipelineEntity.name.toLowerCase());
+        if (existingId) {
+          // Already have this entity, just update the mapping
+          entityIdMap.current.set(pipelineEntity.id, existingId);
+          return;
+        }
         
         const entity = convertEntity(pipelineEntity);
         
@@ -268,7 +276,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
   
   /**
    * Start streaming research between two entities.
-   * Immediately shows the two target entities on the graph for instant feedback.
+   * Backend immediately yields the two target entities for instant feedback.
    */
   const startResearch = useCallback((
     entity1: string,
@@ -286,33 +294,15 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
       clearNetwork();
     }
     
-    // IMMEDIATELY add the two target entities so user sees something right away
-    const entity1Id = generateId();
-    const entity2Id = generateId();
-    
-    addEntity({
-      name: entity1,
-      type: 'person',
-      description: 'Researching connections...',
-      importance: 9,
-    });
-    
-    addEntity({
-      name: entity2,
-      type: 'person', 
-      description: 'Researching connections...',
-      importance: 9,
-    });
-    
-    // Store the IDs for mapping
-    entityIdMap.current.set(entity1.toLowerCase(), entity1Id);
-    entityIdMap.current.set(entity2.toLowerCase(), entity2Id);
+    // Pre-register the target entity names so we can map them when they arrive
+    // The backend will send them immediately as entity_found events
+    pipelineOptions.target_entities = [entity1.toLowerCase(), entity2.toLowerCase()];
     
     setState({
       isStreaming: true,
       phase: 'Researching connections...',
       progress: `Finding connections between ${entity1} and ${entity2}`,
-      entitiesFound: 2,
+      entitiesFound: 0,
       relationshipsFound: 0,
       error: null,
     });
@@ -334,7 +324,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
     
     const callbacks = createCallbacks(clearFirst);
     abortRef.current = streamResearch(entity1, entity2, callbacks, pipelineOptions);
-  }, [createCallbacks, network.entities, addEntity, clearNetwork]);
+  }, [createCallbacks, network.entities, clearNetwork]);
   
   return {
     state,
