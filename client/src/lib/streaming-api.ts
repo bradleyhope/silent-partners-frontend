@@ -405,6 +405,10 @@ function handleEvent(event: PipelineEvent, callbacks: StreamingCallbacks) {
       callbacks.onProgress?.(eventData.message || 'Research data found', undefined);
       break;
 
+    case 'progress':
+      callbacks.onProgress?.(eventData.message || 'Processing...', undefined);
+      break;
+
     // Legacy events
     case 'pipeline_started':
       callbacks.onStart?.(
