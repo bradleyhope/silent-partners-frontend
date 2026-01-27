@@ -5,7 +5,7 @@
  * Design: Archival Investigator with gold accents
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,8 @@ import { useMobileSidebar } from '@/contexts/MobileSidebarContext';
 import { extractTextFromPdf, isPdfFile } from '@/lib/pdf-utils';
 import pako from 'pako';
 import ExportModal from './ExportModal';
+import StreamingProgress from './StreamingProgress';
+import { useStreamingPipeline } from '@/hooks/useStreamingPipeline';
 
 // Example networks
 const EXAMPLE_NETWORKS = [
@@ -89,215 +91,75 @@ export default function Sidebar() {
   const [isEnrichingAll, setIsEnrichingAll] = useState(false);
   const [toolPrompt, setToolPrompt] = useState('');
 
+  // Streaming pipeline hook for real-time graph building
+  const { state: streamingState, startExtraction, startResearch, cancel: cancelStreaming } = useStreamingPipeline();
+  
+  // Use streaming state to control processing indicator
+  const isStreamingActive = streamingState.isStreaming;
 
-  // Handle AI extraction/discovery
-  const handleAiSubmit = useCallback(async () => {
+
+  // Handle AI extraction/discovery - now uses streaming pipeline
+  const handleAiSubmit = useCallback(() => {
     if (!aiInput.trim()) {
       toast.error('Please enter some text or a question');
       return;
     }
 
-    setIsProcessing(true);
-    
-    try {
-      // Determine if this is a question (discover) or text (extract)
-      const isQuestion = aiInput.trim().endsWith('?') || 
-        aiInput.toLowerCase().startsWith('who') ||
-        aiInput.toLowerCase().startsWith('what') ||
-        aiInput.toLowerCase().startsWith('how') ||
-        aiInput.toLowerCase().startsWith('find') ||
-        aiInput.toLowerCase().startsWith('map') ||
-        aiInput.length < 200;
+    // Determine if this is a question (discover/query) or text (extract)
+    const isQuestion = aiInput.trim().endsWith('?') || 
+      aiInput.toLowerCase().startsWith('who') ||
+      aiInput.toLowerCase().startsWith('what') ||
+      aiInput.toLowerCase().startsWith('how') ||
+      aiInput.toLowerCase().startsWith('find') ||
+      aiInput.toLowerCase().startsWith('map') ||
+      aiInput.length < 200;
 
-      let result;
-      
-      if (isQuestion) {
-        toast.info('Researching connections...', { duration: 10000 });
-        result = await api.discover(aiInput, 'gpt-5', 3);
-      } else {
-        toast.info('Extracting network from text...', { duration: 5000 });
-        result = await api.extract(aiInput, 'gpt-5');
-      }
-
-      if (result.entities.length === 0) {
-        toast.warning('No entities found. Try a different query or more detailed text.');
-        return;
-      }
-
-      // Convert API response to our format
-      // Create a mapping from API entity IDs (E1, E2, etc.) to our generated IDs
-      const apiIdToOurId = new Map<string, string>();
-      
-      const entities: Entity[] = result.entities.map((e) => {
-        const ourId = generateId();
-        // Map the API's entity ID to our generated ID
-        if (e.id) {
-          apiIdToOurId.set(e.id, ourId);
-        }
-        // Also map by name for fallback
-        apiIdToOurId.set(e.name.toLowerCase(), ourId);
-        
-        return {
-          id: ourId,
-          name: e.name,
-          type: (e.type as Entity['type']) || 'unknown',
-          description: e.description,
-          importance: e.importance || 5,
-        };
-      });
-
-      // Map relationships using the API ID mapping
-      const relationships: Relationship[] = result.relationships.map((r) => {
-        // Look up our IDs from the API's source/target IDs
-        const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase()) || r.source;
-        const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase()) || r.target;
-        
-        return {
-          id: generateId(),
-          source: sourceId,
-          target: targetId,
-          type: r.type,
-          label: r.label || r.type,
-        };
-      }).filter((r) => {
-        // Only include relationships where both source and target were mapped
-        const sourceExists = entities.some((e) => e.id === r.source);
-        const targetExists = entities.some((e) => e.id === r.target);
-        return sourceExists && targetExists;
-      });
-
-      if (aiMode === 'new') {
-        clearNetwork();
-      }
-
-      addEntitiesAndRelationships(entities, relationships);
-      
-      toast.success(`Added ${entities.length} entities and ${relationships.length} connections`);
-      setAiInput('');
-      
-    } catch (error) {
-      console.error('AI processing error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to process. Please try again.');
-    } finally {
-      setIsProcessing(false);
+    // Use streaming pipeline for real-time graph building
+    if (isQuestion) {
+      // Research query - uses Perplexity to search and extract
+      startExtraction('query', aiInput, { clearFirst: aiMode === 'new' });
+    } else {
+      // Text extraction - directly extracts entities from text
+      startExtraction('text', aiInput, { clearFirst: aiMode === 'new' });
     }
-  }, [aiInput, aiMode, addEntitiesAndRelationships, clearNetwork]);
+    
+    setAiInput('');
+  }, [aiInput, aiMode, startExtraction]);
 
-  // Handle Find Connection mode - builds a connected network between two entities
-  const handleConnectSubmit = useCallback(async () => {
+  // Handle Find Connection mode - uses streaming research pipeline
+  const handleConnectSubmit = useCallback(() => {
     if (!aiInput.trim()) {
       toast.error('Please enter two names to find connections between');
       return;
     }
 
-    setIsProcessing(true);
+    // Parse the input to extract two entity names
+    // Support formats: "A and B", "A, B", "A to B", "A -> B"
+    const input = aiInput.trim();
+    let entity1 = '';
+    let entity2 = '';
     
-    try {
-      toast.info('Researching connections (this may take 15-30 seconds)...', { duration: 30000 });
-      
-      // Parse the input to extract two entity names
-      // Support formats: "A and B", "A, B", "A to B", "A -> B"
-      const input = aiInput.trim();
-      let entity1 = '';
-      let entity2 = '';
-      
-      const separators = [' and ', ', ', ' to ', ' -> ', ' & '];
-      for (const sep of separators) {
-        if (input.toLowerCase().includes(sep)) {
-          const parts = input.split(new RegExp(sep, 'i'));
-          if (parts.length >= 2) {
-            entity1 = parts[0].trim();
-            entity2 = parts[1].trim();
-            break;
-          }
+    const separators = [' and ', ', ', ' to ', ' -> ', ' & '];
+    for (const sep of separators) {
+      if (input.toLowerCase().includes(sep)) {
+        const parts = input.split(new RegExp(sep, 'i'));
+        if (parts.length >= 2) {
+          entity1 = parts[0].trim();
+          entity2 = parts[1].trim();
+          break;
         }
       }
-      
-      if (!entity1 || !entity2) {
-        toast.error('Please enter two names separated by "and", ",", or "to"');
-        return;
-      }
-      
-      // Call the find-connection API - now returns a full network
-      const result = await api.findConnection(entity1, entity2, network.entities, network.relationships);
-      
-      if (!result.connection_found) {
-        toast.warning(`No connection found between ${entity1} and ${entity2}. Try different names or check spelling.`);
-        return;
-      }
-      
-      // The new API always returns entities and relationships
-      if (result.entities && result.entities.length > 0) {
-        const apiIdToOurId = new Map<string, string>();
-        
-        // Map API entity IDs to our generated IDs
-        const newEntities: Entity[] = result.entities.map((e) => {
-          const ourId = generateId();
-          if (e.id) apiIdToOurId.set(e.id, ourId);
-          apiIdToOurId.set(e.name.toLowerCase(), ourId);
-          
-          return {
-            id: ourId,
-            name: e.name,
-            type: (e.type as Entity['type']) || 'person',
-            description: e.description || e.role_in_connection,
-            importance: 7, // Connection entities are important
-          };
-        });
-        
-        // Map relationships using the ID mapping
-        const newRelationships: Relationship[] = (result.relationships || []).map((r) => {
-          const sourceId = apiIdToOurId.get(r.source) || apiIdToOurId.get(r.source.toLowerCase()) || r.source;
-          const targetId = apiIdToOurId.get(r.target) || apiIdToOurId.get(r.target.toLowerCase()) || r.target;
-          
-          return {
-            id: generateId(),
-            source: sourceId,
-            target: targetId,
-            type: r.type,
-            label: r.label || r.type,
-          };
-        }).filter((r: Relationship) => {
-          // Only include relationships where both entities exist
-          const sourceExists = newEntities.some((e) => e.id === r.source) || network.entities.some((e) => e.id === r.source);
-          const targetExists = newEntities.some((e) => e.id === r.target) || network.entities.some((e) => e.id === r.target);
-          return sourceExists && targetExists;
-        });
-        
-        // Clear network if in 'new' mode, otherwise add to existing
-        if (aiMode === 'new') {
-          clearNetwork();
-        }
-        
-        addEntitiesAndRelationships(newEntities, newRelationships);
-        
-        // Show success with connection details
-        const strengthLabel = result.connection_strength === 'strong' ? '🔗 Strong' : 
-                             result.connection_strength === 'moderate' ? '🔗 Moderate' : '🔗 Weak';
-        toast.success(
-          `${strengthLabel} connection found! Added ${newEntities.length} entities and ${newRelationships.length} relationships.`,
-          { duration: 5000 }
-        );
-        
-        // Show summary if available
-        if (result.summary) {
-          setTimeout(() => {
-            toast.info(result.summary, { duration: 8000 });
-          }, 1000);
-        }
-      } else {
-        toast.warning('Connection analysis complete but no network data returned.');
-      }
-      
-      setAiInput('');
-      
-    } catch (error) {
-      console.error('Find connection error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to find connection. Please try again.');
-    } finally {
-      setIsProcessing(false);
     }
-  }, [aiInput, aiMode, network.entities, network.relationships, addEntitiesAndRelationships, clearNetwork]);
+    
+    if (!entity1 || !entity2) {
+      toast.error('Please enter two names separated by "and", ",", or "to"');
+      return;
+    }
+    
+    // Use streaming research pipeline for real-time connection building
+    startResearch(entity1, entity2, { clearFirst: aiMode === 'new' });
+    setAiInput('');
+  }, [aiInput, aiMode, startResearch]);
 
   // Load example network from pre-built data
   const handleLoadExample = useCallback(async (exampleId: string) => {
@@ -1342,15 +1204,25 @@ export default function Sidebar() {
                 ? 'Ask a question like "Who are the key investors in SpaceX?"'
                 : 'Enter two names like "Elon Musk and Peter Thiel" to find connections...'
             }
-            disabled={isProcessing}
+            disabled={isProcessing || isStreamingActive}
           />
+          
+          {/* Streaming Progress Indicator */}
+          {(isStreamingActive || streamingState.error) && (
+            <StreamingProgress state={streamingState} onCancel={cancelStreaming} />
+          )}
           
           <Button 
             onClick={aiActionMode === 'connect' ? handleConnectSubmit : handleAiSubmit} 
-            disabled={isProcessing || !aiInput.trim()}
+            disabled={isProcessing || isStreamingActive || !aiInput.trim()}
             className="w-full bg-primary hover:bg-primary/90"
           >
-            {isProcessing ? (
+            {isStreamingActive ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Building Graph...
+              </>
+            ) : isProcessing ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Processing...
