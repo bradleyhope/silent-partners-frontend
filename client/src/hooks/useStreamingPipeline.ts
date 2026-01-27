@@ -268,6 +268,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
   
   /**
    * Start streaming research between two entities.
+   * Immediately shows the two target entities on the graph for instant feedback.
    */
   const startResearch = useCallback((
     entity1: string,
@@ -279,11 +280,39 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
     // Reset state
     entityIdMap.current.clear();
     addedEntities.current = [];
+    
+    // Clear network if requested
+    if (clearFirst) {
+      clearNetwork();
+    }
+    
+    // IMMEDIATELY add the two target entities so user sees something right away
+    const entity1Id = generateId();
+    const entity2Id = generateId();
+    
+    addEntity({
+      name: entity1,
+      type: 'person',
+      description: 'Researching connections...',
+      importance: 9,
+    });
+    
+    addEntity({
+      name: entity2,
+      type: 'person', 
+      description: 'Researching connections...',
+      importance: 9,
+    });
+    
+    // Store the IDs for mapping
+    entityIdMap.current.set(entity1.toLowerCase(), entity1Id);
+    entityIdMap.current.set(entity2.toLowerCase(), entity2Id);
+    
     setState({
       isStreaming: true,
       phase: 'Researching connections...',
       progress: `Finding connections between ${entity1} and ${entity2}`,
-      entitiesFound: 0,
+      entitiesFound: 2,
       relationshipsFound: 0,
       error: null,
     });
@@ -305,7 +334,7 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
     
     const callbacks = createCallbacks(clearFirst);
     abortRef.current = streamResearch(entity1, entity2, callbacks, pipelineOptions);
-  }, [createCallbacks, network.entities]);
+  }, [createCallbacks, network.entities, addEntity, clearNetwork]);
   
   return {
     state,
