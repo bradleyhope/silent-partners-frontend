@@ -15,6 +15,9 @@ export interface Entity {
   y?: number;
   fx?: number | null;
   fy?: number | null;
+  // Source tracking for citations
+  source_text?: string;  // The text snippet this entity was extracted from
+  source_query?: string; // The search query that found this entity
 }
 
 export interface Relationship {

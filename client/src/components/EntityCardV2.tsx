@@ -620,6 +620,26 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
                   <Pencil className="w-3 h-3" />
                 </Button>
               </div>
+              
+              {/* Source Citation - Show where this entity came from */}
+              {(entity.source_query || entity.source_text) && (
+                <div className="mt-1.5 p-2 bg-blue-500/10 border border-blue-500/20 rounded text-xs">
+                  <div className="flex items-center gap-1 text-blue-400 font-medium mb-1">
+                    <FileText className="w-3 h-3" />
+                    Source
+                  </div>
+                  {entity.source_query && (
+                    <div className="text-muted-foreground">
+                      <span className="text-blue-300">Query:</span> {entity.source_query}
+                    </div>
+                  )}
+                  {entity.source_text && (
+                    <div className="text-muted-foreground mt-1 italic text-[10px] line-clamp-3">
+                      "{entity.source_text.slice(0, 200)}{entity.source_text.length > 200 ? '...' : ''}"
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
