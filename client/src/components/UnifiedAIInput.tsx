@@ -47,6 +47,16 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
   // Track entity ID mapping for this session
   const entityIdMap = useRef<Map<string, string>>(new Map());
   
+  // Cleanup abort controller on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        abortRef.current();
+        abortRef.current = null;
+      }
+    };
+  }, []);
+  
   // Handle input change and check for / trigger
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;

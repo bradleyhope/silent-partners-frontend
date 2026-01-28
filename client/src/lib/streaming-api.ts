@@ -10,8 +10,9 @@
  * - Context-aware extraction (uses existing graph entities)
  */
 
-const API_BASE = 'https://silent-partners-ai-api.onrender.com/api';
-const API_V5 = 'https://silent-partners-ai-api.onrender.com/api/v5';
+// API URLs - configurable via environment variables
+const API_BASE = import.meta.env.VITE_API_BASE || 'https://silent-partners-ai-api.onrender.com/api';
+const API_V5 = import.meta.env.VITE_API_V5 || 'https://silent-partners-ai-api.onrender.com/api/v5';
 
 // Event types from the backend
 export type PipelineEventType = 
@@ -588,8 +589,8 @@ export default {
 };
 
 
-// Orchestrator API v6.1
-const API_V6 = 'https://silent-partners-ai-api.onrender.com/api/v6';
+// Orchestrator API v6.1 - configurable via environment variable
+const API_V6 = import.meta.env.VITE_API_V6 || 'https://silent-partners-ai-api.onrender.com/api/v6';
 
 // Orchestrator event types
 export type OrchestratorEventType =
