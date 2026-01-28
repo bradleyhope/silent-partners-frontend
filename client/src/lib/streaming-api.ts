@@ -37,6 +37,7 @@ export type PipelineEventType =
   | 'connecting'
   | 'progress'
   | 'context_loaded'
+  | 'context_resolved'
   | 'error';
 
 export interface PipelineEntity {
@@ -128,6 +129,7 @@ export interface StreamingCallbacks {
   onSearching?: (message: string, entity?: string) => void;
   onConnecting?: (entity: string) => void;
   onContextLoaded?: (count: number, message: string) => void;
+  onContextResolved?: (original: string, rewritten: string, inputType: string, confidence: number) => void;
   onValidationIssue?: (issueType: string, entityId?: string) => void;
   onValidationFixed?: (issueType: string, entityId?: string) => void;
   onComplete?: (graph: { entities: PipelineEntity[]; relationships: PipelineRelationship[] }, stats: any) => void;
@@ -434,6 +436,19 @@ function handleEvent(event: PipelineEvent, callbacks: StreamingCallbacks) {
     case 'context_loaded':
       callbacks.onContextLoaded?.(eventData.count || 0, eventData.message || 'Context loaded');
       callbacks.onProgress?.(eventData.message || `Loaded ${eventData.count} existing entities`, undefined);
+      break;
+
+    case 'context_resolved':
+      callbacks.onContextResolved?.(
+        eventData.original || '',
+        eventData.rewritten || '',
+        eventData.input_type || 'ENTITY_ADD',
+        eventData.confidence || 1.0
+      );
+      // Show what was understood
+      if (eventData.original !== eventData.rewritten) {
+        callbacks.onProgress?.(`Understood: "${eventData.rewritten}"`, undefined);
+      }
       break;
 
     case 'searching':

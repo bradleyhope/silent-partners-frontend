@@ -163,6 +163,25 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
         }
       },
       
+      onContextResolved: (original, rewritten, inputType, confidence) => {
+        // Show what the system understood
+        if (original !== rewritten) {
+          setState(s => ({ 
+            ...s, 
+            progress: `Understood: "${rewritten}"`,
+            phase: 'Understanding input...'
+          }));
+          toast.info(`Understood: "${rewritten}"`, { id: 'context-resolved', duration: 3000 });
+        }
+        // If it's a research query, show that we're switching modes
+        if (inputType === 'RESEARCH_QUERY') {
+          setState(s => ({ 
+            ...s, 
+            phase: 'Researching...'
+          }));
+        }
+      },
+      
       onEntityFound: (pipelineEntity, isNew) => {
         if (!isNew) return; // Skip duplicates from backend
         
