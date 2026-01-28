@@ -35,7 +35,14 @@ const EXAMPLE_NETWORKS = [
   { id: 'epstein', name: "Epstein's Web", query: 'Map Jeffrey Epstein network of associates, connections to financial institutions and powerful individuals' },
 ];
 
-export default function Sidebar() {
+import { NarrativeEvent } from './NarrativePanel';
+
+interface SidebarProps {
+  onNarrativeEvent?: (event: Omit<NarrativeEvent, 'id' | 'timestamp'>) => void;
+  setIsProcessing?: (processing: boolean) => void;
+}
+
+export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentProcessing }: SidebarProps = {}) {
   const { network, dispatch, addEntitiesAndRelationships, clearNetwork, selectEntity } = useNetwork();
   const { isAuthenticated } = useAuth();
   const { theme, setTheme, showAllLabels, setShowAllLabels } = useCanvasTheme();

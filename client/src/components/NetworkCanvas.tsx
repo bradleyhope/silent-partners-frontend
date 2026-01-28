@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Plus, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
-import EntityCard from './EntityCard';
+import EntityCardV2 from './EntityCardV2';
 import { RelationshipCard } from './RelationshipCard';
 
 interface SimulationNode extends Entity {
@@ -61,7 +61,11 @@ const ANIMATION = {
   STAGGER_DELAY: 100,
 };
 
-export default function NetworkCanvas() {
+interface NetworkCanvasProps {
+  onNarrativeEvent?: (message: string) => void;
+}
+
+export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps = {}) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { network, selectedEntityId, selectEntity, updateEntity, dispatch } = useNetwork();
@@ -686,7 +690,12 @@ export default function NetworkCanvas() {
             top: Math.min(cardPosition.y, dimensions.height - 200),
           }}
         >
-          <EntityCard entity={selectedEntity} position={cardPosition} onClose={() => selectEntity(null)} />
+          <EntityCardV2 
+            entity={selectedEntity} 
+            position={cardPosition} 
+            onClose={() => selectEntity(null)}
+            onAddToNarrative={onNarrativeEvent}
+          />
         </div>
       )}
 
