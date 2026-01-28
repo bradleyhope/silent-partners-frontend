@@ -686,7 +686,7 @@ export default function NetworkCanvas() {
             top: Math.min(cardPosition.y, dimensions.height - 200),
           }}
         >
-          <EntityCard entity={selectedEntity} onClose={() => selectEntity(null)} />
+          <EntityCard entity={selectedEntity} position={cardPosition} onClose={() => selectEntity(null)} />
         </div>
       )}
 
@@ -701,6 +701,9 @@ export default function NetworkCanvas() {
         >
           <RelationshipCard
             relationship={selectedRelationship}
+            sourceEntity={network.entities.find(e => e.id === selectedRelationship.source)}
+            targetEntity={network.entities.find(e => e.id === selectedRelationship.target)}
+            position={relationshipCardPosition}
             onClose={() => {
               setSelectedRelationship(null);
               setRelationshipCardPosition(null);
