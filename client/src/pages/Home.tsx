@@ -17,7 +17,7 @@ import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import NetworkCanvas from '@/components/NetworkCanvas';
 import DetailPanel from '@/components/DetailPanel';
-import NarrativePanel, { NarrativeEvent, InvestigationContext } from '@/components/NarrativePanel';
+import NarrativePanel, { NarrativeEvent, InvestigationContext, Suggestion, ResearchHistoryItem } from '@/components/NarrativePanel';
 import { UndoHistoryPanel } from '@/components/UndoHistoryPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,10 @@ function AppContentInner() {
     focus: '',
     keyQuestions: []
   });
+  
+  // NEW: Suggestions and research history from orchestrator v2.0
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [researchHistory, setResearchHistory] = useState<ResearchHistoryItem[]>([]);
 
   // Sync investigation context from network when it changes (e.g., when loading a saved graph)
   useEffect(() => {
@@ -119,6 +123,39 @@ function AppContentInner() {
   const handleClearEvents = useCallback(() => {
     setNarrativeEvents([]);
   }, []);
+  
+  // Handle suggestions from orchestrator v2.0
+  const handleSuggestions = useCallback((newSuggestions: Suggestion[]) => {
+    setSuggestions(newSuggestions);
+    // Auto-show narrative panel when suggestions arrive
+    if (newSuggestions.length > 0 && !showNarrative) {
+      setShowNarrative(true);
+    }
+  }, [showNarrative]);
+  
+  // Handle suggestion click
+  const handleSuggestionClick = useCallback((suggestion: Suggestion) => {
+    if (suggestion.action) {
+      // Execute the suggested action
+      toast.info(`Executing: ${suggestion.message}`);
+      // TODO: Parse and execute the action
+    }
+    // Remove the suggestion after clicking
+    setSuggestions(prev => prev.filter(s => s !== suggestion));
+  }, []);
+  
+  // Add research history item
+  const handleResearchHistory = useCallback((item: { query: string; source: string }) => {
+    const newItem: ResearchHistoryItem = {
+      id: `research-${Date.now()}`,
+      query: item.query,
+      source: item.source,
+      entities_found: 0,
+      relationships_found: 0,
+      timestamp: new Date().toISOString(),
+    };
+    setResearchHistory(prev => [newItem, ...prev].slice(0, 20)); // Keep last 20
+  }, []);
 
   // Update investigation context - both local state AND network state (for persistence)
   const handleUpdateContext = useCallback((context: InvestigationContext) => {
@@ -169,10 +206,13 @@ function AppContentInner() {
             <NarrativePanel
               events={narrativeEvents}
               context={investigationContext}
+              suggestions={suggestions}
+              researchHistory={researchHistory}
               onUpdateContext={handleUpdateContext}
               onActionClick={handleNarrativeAction}
               onChatSubmit={handleChatSubmit}
               onClearEvents={handleClearEvents}
+              onSuggestionClick={handleSuggestionClick}
               isProcessing={isProcessing}
             />
           </div>

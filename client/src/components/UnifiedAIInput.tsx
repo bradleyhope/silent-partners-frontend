@@ -28,9 +28,12 @@ interface UnifiedAIInputProps {
     focus?: string;
     key_questions?: string[];
   };
+  graphId?: number;  // NEW: For research memory
+  onSuggestions?: (suggestions: Array<{ type: string; message: string; action?: string }>) => void;
+  onResearchHistory?: (item: { query: string; source: string }) => void;
 }
 
-export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext }: UnifiedAIInputProps) {
+export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext, graphId, onSuggestions, onResearchHistory }: UnifiedAIInputProps) {
   const { network, addEntity, addRelationship, clearNetwork } = useNetwork();
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -163,6 +166,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       key_questions: investigationContext?.key_questions || [],
       entities: network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
       relationships: network.relationships.map(r => ({ source: r.source, target: r.target, type: r.type })),
+      graph_id: graphId,  // NEW: For research memory
     };
     
     // Create callbacks
@@ -268,6 +272,38 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
         onNarrativeEvent?.({
           type: 'suggestion',
           message: `Warning: ${message}`,
+        });
+      },
+      
+      // NEW v2.0 callbacks
+      onSuggestions: (suggestions) => {
+        onSuggestions?.(suggestions);
+        if (suggestions.length > 0) {
+          onNarrativeEvent?.({
+            type: 'suggestion',
+            title: 'AI Suggestions',
+            content: suggestions.map(s => `${s.type}: ${s.message}`).join('\n'),
+          });
+        }
+      },
+      
+      onResearchCached: (query, message) => {
+        onNarrativeEvent?.({
+          type: 'info',
+          title: 'Using Cached Research',
+          content: message,
+        });
+        onResearchHistory?.({ query, source: 'cache' });
+      },
+      
+      onGraphAnalysis: (analysis) => {
+        onNarrativeEvent?.({
+          type: 'reasoning',
+          title: 'Graph Analysis',
+          content: `${analysis.entity_count} entities, ${analysis.relationship_count} relationships`,
+          reasoning: analysis.central_nodes.length > 0 
+            ? `Central nodes: ${analysis.central_nodes.join(', ')}` 
+            : undefined,
         });
       },
     };
