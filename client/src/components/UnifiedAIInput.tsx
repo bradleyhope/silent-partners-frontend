@@ -38,6 +38,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
   const { network, addEntity, addRelationship, clearNetwork, dispatch } = useNetwork();
   const [input, setInput] = useState(initialQuery || '');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState<{ step: number; total: number; goal: string; startTime: number } | null>(null);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteResults, setAutocompleteResults] = useState<Entity[]>([]);
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
@@ -235,6 +236,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       },
       
       onStepStarted: (step, total, goal) => {
+        setProgress({ step, total, goal, startTime: Date.now() });
         onNarrativeEvent?.({
           type: 'extraction',
           title: `Step ${step}/${total}`,
@@ -282,6 +284,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       
       onComplete: (entities, relationships, message) => {
         setIsProcessing(false);
+        setProgress(null);  // Clear progress
         abortRef.current = null;  // Clear abort ref
         onNarrativeEvent?.({
           type: 'extraction',
@@ -295,6 +298,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       onError: (message, recoverable) => {
         // Always reset processing state on error
         setIsProcessing(false);
+        setProgress(null);  // Clear progress
         abortRef.current = null;  // Clear abort ref
         toast.error(message, { id: 'orchestrator-progress' });
         onNarrativeEvent?.({
@@ -397,6 +401,23 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
           </div>
         )}
       </div>
+      
+      {/* Progress indicator */}
+      {progress && (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Step {progress.step} of {progress.total}</span>
+            <span>{Math.round((progress.step / progress.total) * 100)}%</span>
+          </div>
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-primary transition-all duration-300 ease-out"
+              style={{ width: `${(progress.step / progress.total) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground truncate">{progress.goal}</p>
+        </div>
+      )}
       
       {/* Submit button */}
       <Button

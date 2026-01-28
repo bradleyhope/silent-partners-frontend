@@ -43,6 +43,7 @@ interface SimulationLink {
   type?: string;
   label?: string;
   status?: 'confirmed' | 'suspected' | 'former';
+  confidence?: number;  // 0-1 confidence score for visual styling
   isNew?: boolean;
   addedAt?: number;
 }
@@ -258,6 +259,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         ...r,
         source: r.source,
         target: r.target,
+        confidence: (r as any).confidence ?? 0.8,  // Default to 0.8 if not specified
         isNew: newRelIds.has(r.id),
         addedAt: newRelIds.has(r.id) ? now + (nodes.length + i) * ANIMATION.STAGGER_DELAY : 0,
       }));
@@ -315,9 +317,13 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       .attr('stroke-width', lineWidth)
       .attr('stroke-opacity', 0)
       .attr('stroke-dasharray', d => {
+        // Confidence-based styling: high (solid), medium (dashed), low (dotted)
         if (d.status === 'suspected') return '4,4';
         if (d.status === 'former') return '2,3';
-        return 'none';
+        const conf = d.confidence ?? 0.8;
+        if (conf < 0.4) return '2,2';  // Low confidence: dotted
+        if (conf < 0.7) return '6,3';  // Medium confidence: dashed
+        return 'none';  // High confidence: solid
       })
       .style('cursor', 'pointer');
 
