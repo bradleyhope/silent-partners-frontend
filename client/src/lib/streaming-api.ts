@@ -1,5 +1,5 @@
 /**
- * Silent Partners - Streaming API Client v5.0
+ * Silent Partners - Streaming API Client v5.1
  * 
  * Handles Server-Sent Events (SSE) for real-time graph construction.
  * Uses the new smart extraction endpoints with:
@@ -7,6 +7,7 @@
  * - Immediate relationship finding
  * - Centrality-based ordering
  * - Visual feedback events
+ * - Context-aware extraction (uses existing graph entities)
  */
 
 const API_BASE = 'https://silent-partners-ai-api.onrender.com/api';
@@ -35,6 +36,7 @@ export type PipelineEventType =
   | 'searching'
   | 'connecting'
   | 'progress'
+  | 'context_loaded'
   | 'error';
 
 export interface PipelineEntity {
@@ -90,6 +92,7 @@ export interface PipelineEvent {
     progress?: number;
     current?: number;
     total?: number;
+    count?: number;
     
     // Complete event
     graph?: {
@@ -124,6 +127,7 @@ export interface StreamingCallbacks {
   onProgress?: (message: string, progress?: number) => void;
   onSearching?: (message: string, entity?: string) => void;
   onConnecting?: (entity: string) => void;
+  onContextLoaded?: (count: number, message: string) => void;
   onValidationIssue?: (issueType: string, entityId?: string) => void;
   onValidationFixed?: (issueType: string, entityId?: string) => void;
   onComplete?: (graph: { entities: PipelineEntity[]; relationships: PipelineRelationship[] }, stats: any) => void;
@@ -137,6 +141,7 @@ export interface PipelineOptions {
   max_entities?: number;
   include_locations?: boolean;
   include_organizations?: boolean;
+  target_entities?: string[];
 }
 
 /**
@@ -146,6 +151,7 @@ export interface PipelineOptions {
  * - Immediate relationship finding (entities connect as they appear)
  * - Centrality-based ordering (most connected first)
  * - Visual feedback (searching, connecting animations)
+ * - Context-aware extraction (recognizes existing graph entities)
  * 
  * Returns an abort function to cancel the stream.
  */
@@ -159,7 +165,7 @@ export function streamPipeline(
   
   const runStream = async () => {
     try {
-      // Use v5 smart endpoint
+      // Use v5 smart endpoint with existing entities for context
       const response = await fetch(`${API_V5}/extract`, {
         method: 'POST',
         headers: {
@@ -169,6 +175,8 @@ export function streamPipeline(
         body: JSON.stringify({
           text: sourceData,
           stream: true,
+          existing_entities: options.existing_entities || [],
+          existing_relationships: options.existing_relationships || [],
         }),
         signal: abortController.signal,
       });
@@ -233,6 +241,7 @@ export function streamPipeline(
  * Research connections between two entities with v5 smart streaming.
  * Target entities appear immediately, then intermediaries stream in with relationships.
  * Uses semantic deduplication and immediate relationship finding.
+ * Context-aware: recognizes entities already in the graph.
  */
 export function streamResearch(
   entity1: string,
@@ -244,7 +253,7 @@ export function streamResearch(
   
   const runStream = async () => {
     try {
-      // Use v5 smart research endpoint
+      // Use v5 smart research endpoint with existing entities for context
       const response = await fetch(`${API_V5}/research`, {
         method: 'POST',
         headers: {
@@ -255,6 +264,7 @@ export function streamResearch(
           entity1,
           entity2,
           stream: true,
+          existing_entities: options.existing_entities || [],
         }),
         signal: abortController.signal,
       });
@@ -341,6 +351,8 @@ export async function extractPipeline(
     body: JSON.stringify({
       text: sourceData,
       stream: false,
+      existing_entities: options.existing_entities || [],
+      existing_relationships: options.existing_relationships || [],
     }),
   });
 
@@ -389,6 +401,7 @@ export async function researchConnection(
       entity1,
       entity2,
       stream: false,
+      existing_entities: options.existing_entities || [],
     }),
   });
 
@@ -416,6 +429,11 @@ function handleEvent(event: PipelineEvent, callbacks: StreamingCallbacks) {
     case 'research_started':
       callbacks.onStart?.('', 'extraction');
       callbacks.onProgress?.(eventData.message || 'Starting...', undefined);
+      break;
+
+    case 'context_loaded':
+      callbacks.onContextLoaded?.(eventData.count || 0, eventData.message || 'Context loaded');
+      callbacks.onProgress?.(eventData.message || `Loaded ${eventData.count} existing entities`, undefined);
       break;
 
     case 'searching':

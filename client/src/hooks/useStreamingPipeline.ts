@@ -152,6 +152,17 @@ export function useStreamingPipeline(): UseStreamingPipelineReturn {
         }));
       },
       
+      onContextLoaded: (count, message) => {
+        setState(s => ({ 
+          ...s, 
+          progress: message || `Loaded ${count} existing entities`,
+          phase: 'Loading context...'
+        }));
+        if (count > 0) {
+          toast.info(`Using ${count} existing entities for context`, { id: 'context-loaded' });
+        }
+      },
+      
       onEntityFound: (pipelineEntity, isNew) => {
         if (!isNew) return; // Skip duplicates from backend
         
