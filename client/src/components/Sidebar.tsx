@@ -29,12 +29,46 @@ import StreamingProgress from './StreamingProgress';
 import { useStreamingPipeline } from '@/hooks/useStreamingPipeline';
 import UnifiedAIInput from './UnifiedAIInput';
 
-// Example networks
-const EXAMPLE_NETWORKS = [
-  { id: '1mdb', name: '1MDB Scandal', query: 'Map the key players and financial connections in the 1MDB scandal involving Jho Low and Malaysian government officials' },
-  { id: 'bcci', name: 'BCCI', query: 'Map the Bank of Credit and Commerce International scandal network including key figures and shell companies' },
-  { id: 'epstein', name: "Epstein's Web", query: 'Map Jeffrey Epstein network of associates, connections to financial institutions and powerful individuals' },
+// Investigation templates organized by use case
+const INVESTIGATION_TEMPLATES = [
+  // Corporate Investigations
+  { id: 'corporate-structure', name: '🏢 Corporate Structure', category: 'corporate', 
+    query: 'Map the ownership structure, subsidiaries, and key executives of [Company Name]',
+    description: 'Trace corporate hierarchies and beneficial ownership' },
+  { id: 'due-diligence', name: '🔍 Due Diligence', category: 'corporate',
+    query: 'Research [Person/Company] background, business history, legal issues, and key relationships',
+    description: 'Background check for business partnerships' },
+  
+  // Financial Investigations  
+  { id: 'money-trail', name: '💰 Money Trail', category: 'financial',
+    query: 'Trace the flow of funds and financial relationships involving [Entity]',
+    description: 'Follow financial connections and transactions' },
+  { id: 'shell-companies', name: '🏭 Shell Company Network', category: 'financial',
+    query: 'Map shell companies, offshore entities, and nominee directors connected to [Entity]',
+    description: 'Uncover hidden corporate structures' },
+    
+  // People Networks
+  { id: 'influence-network', name: '👥 Influence Network', category: 'people',
+    query: 'Map the professional network, board memberships, and political connections of [Person]',
+    description: 'Understand who influences whom' },
+  { id: 'family-business', name: '👨‍👩‍👧‍👦 Family Business', category: 'people',
+    query: 'Map family members and their business interests for [Family Name]',
+    description: 'Family business empires and dynasties' },
+    
+  // Historical Examples
+  { id: '1mdb', name: '🇲🇾 1MDB Scandal', category: 'examples',
+    query: 'Map the key players and financial connections in the 1MDB scandal involving Jho Low and Malaysian government officials',
+    description: 'Multi-billion dollar embezzlement case' },
+  { id: 'bcci', name: '🏦 BCCI', category: 'examples',
+    query: 'Map the Bank of Credit and Commerce International scandal network including key figures and shell companies',
+    description: 'Historic banking fraud network' },
+  { id: 'epstein', name: '🕸️ Epstein Network', category: 'examples',
+    query: 'Map Jeffrey Epstein network of associates, connections to financial institutions and powerful individuals',
+    description: 'Power and influence network' },
 ];
+
+// Keep old reference for backward compatibility
+const EXAMPLE_NETWORKS = INVESTIGATION_TEMPLATES;
 
 import { NarrativeEvent } from './NarrativePanel';
 
@@ -169,10 +203,23 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
     setAiInput('');
   }, [aiInput, aiMode, startResearch]);
 
-  // Load example network from pre-built data
+  // Load example network from pre-built data or template
   const handleLoadExample = useCallback(async (exampleId: string) => {
-    const example = EXAMPLE_NETWORKS.find((e) => e.id === exampleId);
-    if (!example) return;
+    const template = INVESTIGATION_TEMPLATES.find((t) => t.id === exampleId);
+    if (!template) return;
+    
+    // For templates with placeholders, open AI panel with the query
+    if (template.query.includes('[')) {
+      // This is a template that needs user input
+      setAiOpen(true);
+      setAiInput(template.query);
+      dispatch({ type: 'UPDATE_NETWORK', payload: { title: template.name.replace(/^[^\s]+\s/, ''), description: template.description } });
+      toast.info(`Template loaded! Replace the [placeholder] with your target and submit.`);
+      return;
+    }
+    
+    // For pre-built examples, load the data
+    const example = template;
 
     setIsProcessing(true);
     clearNetwork();
@@ -1072,14 +1119,47 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
           </div>
 
           <div>
-            <Label className="text-xs text-muted-foreground">Load Example</Label>
+            <Label className="text-xs text-muted-foreground">Investigation Templates</Label>
             <Select onValueChange={handleLoadExample} disabled={isProcessing}>
               <SelectTrigger className="h-8 text-sm bg-background">
-                <SelectValue placeholder="Select example..." />
+                <SelectValue placeholder="Choose a template..." />
               </SelectTrigger>
-              <SelectContent>
-                {EXAMPLE_NETWORKS.map((ex) => (
-                  <SelectItem key={ex.id} value={ex.id}>{ex.name}</SelectItem>
+              <SelectContent className="max-h-[300px]">
+                <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Corporate</div>
+                {INVESTIGATION_TEMPLATES.filter(t => t.category === 'corporate').map((t) => (
+                  <SelectItem key={t.id} value={t.id} className="py-2">
+                    <div className="flex flex-col">
+                      <span>{t.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{t.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+                <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-t mt-1 pt-2">Financial</div>
+                {INVESTIGATION_TEMPLATES.filter(t => t.category === 'financial').map((t) => (
+                  <SelectItem key={t.id} value={t.id} className="py-2">
+                    <div className="flex flex-col">
+                      <span>{t.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{t.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+                <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-t mt-1 pt-2">People</div>
+                {INVESTIGATION_TEMPLATES.filter(t => t.category === 'people').map((t) => (
+                  <SelectItem key={t.id} value={t.id} className="py-2">
+                    <div className="flex flex-col">
+                      <span>{t.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{t.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+                <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider border-t mt-1 pt-2">Examples</div>
+                {INVESTIGATION_TEMPLATES.filter(t => t.category === 'examples').map((t) => (
+                  <SelectItem key={t.id} value={t.id} className="py-2">
+                    <div className="flex flex-col">
+                      <span>{t.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{t.description}</span>
+                    </div>
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

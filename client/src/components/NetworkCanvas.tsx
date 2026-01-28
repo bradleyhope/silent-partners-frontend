@@ -670,16 +670,27 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         </Button>
       </div>
 
-      {/* Add entity button */}
-      <Button
-        variant="outline"
-        size="sm"
-        className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm shadow-sm z-10"
-        onClick={() => setShowAddEntity(true)}
-      >
-        <Plus className="h-4 w-4 mr-1" />
-        Add Entity
-      </Button>
+      {/* Empty state - only show when no entities */}
+      {network.entities.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+          <div className="text-center p-8 pointer-events-auto">
+            <div className="text-4xl mb-4 opacity-30">🔍</div>
+            <h3 className="text-lg font-medium text-muted-foreground mb-2">Start Your Investigation</h3>
+            <p className="text-sm text-muted-foreground/70 mb-4 max-w-xs">
+              Use the AI panel to research a topic, or manually add entities to begin mapping connections.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-white/90 backdrop-blur-sm shadow-sm"
+              onClick={() => setShowAddEntity(true)}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add First Entity
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Entity card */}
       {selectedEntity && cardPosition && (
