@@ -113,7 +113,7 @@ function NarrativeEventCard({ event, onActionClick }: { event: NarrativeEvent; o
               onClick={() => setExpanded(!expanded)}
             >
               <Lightbulb className="w-3 h-3" />
-              AI Reasoning
+              Reasoning
               {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
           )}
@@ -277,7 +277,7 @@ export default function NarrativePanel({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Brain className="w-4 h-4 text-primary" />
-            <span className="font-medium text-sm">AI Narrative</span>
+            <span className="font-medium text-sm">Narrative</span>
           </div>
           {isProcessing && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -377,7 +377,7 @@ export default function NarrativePanel({
       {/* Events Stream */}
       <div className="flex-1 overflow-hidden">
         <div className="px-3 py-2 flex items-center justify-between border-b border-border bg-muted/20">
-          <span className="text-xs font-medium text-muted-foreground">AI Thinking</span>
+          <span className="text-xs font-medium text-muted-foreground">Thinking</span>
           {events.length > 0 && (
             <Button 
               variant="ghost" 

@@ -34,7 +34,7 @@ interface UnifiedAIInputProps {
 }
 
 export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext, graphId, onSuggestions, onResearchHistory }: UnifiedAIInputProps) {
-  const { network, addEntity, addRelationship, clearNetwork } = useNetwork();
+  const { network, addEntity, addRelationship, clearNetwork, dispatch } = useNetwork();
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -172,42 +172,55 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
     // Create callbacks
     const callbacks: OrchestratorCallbacks = {
       onStart: (query, referencedEntities) => {
+        // Auto-populate title if network is untitled and empty
+        if (network.title === 'Untitled Network' && network.entities.length === 0) {
+          // Generate a title from the query (first 50 chars, capitalized)
+          const autoTitle = query.length > 50 ? query.slice(0, 47) + '...' : query;
+          dispatch({ type: 'UPDATE_NETWORK', payload: { title: autoTitle } });
+        }
+        
         onNarrativeEvent?.({
           type: 'extraction',
-          message: `Processing: "${query}"`,
-          details: referencedEntities.length > 0 ? `Referenced: ${referencedEntities.join(', ')}` : undefined,
+          title: 'Starting Investigation',
+          content: `Processing: "${query}"${referencedEntities.length > 0 ? ` (Referenced: ${referencedEntities.join(', ')})` : ''}`,
         });
         toast.info('AI is working...', { id: 'orchestrator-progress' });
       },
       
-      onThinking: (message) => {
+      onThinking: (message, reasoning) => {
         onNarrativeEvent?.({
           type: 'reasoning',
-          message,
+          title: 'AI Thinking',
+          content: message,
+          reasoning: reasoning || undefined,
         });
         toast.loading(message, { id: 'orchestrator-progress' });
       },
       
-      onIntentClassified: (intentType, confidence, message) => {
+      onIntentClassified: (intentType, confidence, message, reasoning) => {
         onNarrativeEvent?.({
-          type: 'context',
-          message: `Intent: ${message}`,
-          details: `Type: ${intentType}, Confidence: ${(confidence * 100).toFixed(0)}%`,
+          type: 'reasoning',
+          title: 'Intent Classified',
+          content: message,
+          reasoning: reasoning || `Detected ${intentType} intent with ${(confidence * 100).toFixed(0)}% confidence`,
         });
       },
       
-      onPlanCreated: (steps, plan) => {
+      onPlanCreated: (steps, plan, reasoning) => {
+        const planDetails = plan.map(s => `${s.step}. ${s.goal}`).join('\n');
         onNarrativeEvent?.({
           type: 'reasoning',
-          message: `Created ${steps}-step research plan`,
-          details: plan.map(s => `${s.step}. ${s.goal}`).join('\n'),
+          title: 'Research Plan Created',
+          content: `Created ${steps}-step research plan`,
+          reasoning: reasoning ? `${reasoning}\n\nSteps:\n${planDetails}` : `Steps:\n${planDetails}`,
         });
       },
       
       onStepStarted: (step, total, goal) => {
         onNarrativeEvent?.({
           type: 'extraction',
-          message: `Step ${step}/${total}: ${goal}`,
+          title: `Step ${step}/${total}`,
+          content: goal,
         });
         toast.loading(`Step ${step}/${total}: ${goal}`, { id: 'orchestrator-progress' });
       },
@@ -215,7 +228,8 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       onSearching: (message) => {
         onNarrativeEvent?.({
           type: 'extraction',
-          message,
+          title: 'Searching',
+          content: message,
         });
       },
       
@@ -225,8 +239,8 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
           addEntity(converted);
           onNarrativeEvent?.({
             type: 'extraction',
-            message: `Found: ${entity.name}`,
-            details: `Type: ${entity.type}`,
+            title: 'Entity Found',
+            content: `${entity.name} (${entity.type})`,
           });
         }
       },
@@ -243,35 +257,40 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       onFactFound: (entityName, fact) => {
         onNarrativeEvent?.({
           type: 'extraction',
-          message: `Fact about ${entityName}: ${fact.label} = ${fact.value}`,
+          title: 'Fact Found',
+          content: `${entityName}: ${fact.label} = ${fact.value}`,
         });
       },
       
       onComplete: (entities, relationships, message) => {
         setIsProcessing(false);
+        abortRef.current = null;  // Clear abort ref
         onNarrativeEvent?.({
           type: 'extraction',
-          message: `Complete: ${entities.length} entities, ${relationships.length} connections`,
+          title: 'Investigation Complete',
+          content: `Found ${entities.length} entities and ${relationships.length} connections`,
         });
         toast.success(message, { id: 'orchestrator-progress' });
         setInput('');
       },
       
       onError: (message, recoverable) => {
-        if (!recoverable) {
-          setIsProcessing(false);
-          toast.error(message, { id: 'orchestrator-progress' });
-        }
+        // Always reset processing state on error
+        setIsProcessing(false);
+        abortRef.current = null;  // Clear abort ref
+        toast.error(message, { id: 'orchestrator-progress' });
         onNarrativeEvent?.({
           type: 'error',
-          message,
+          title: recoverable ? 'Warning' : 'Error',
+          content: message,
         });
       },
       
       onWarning: (message) => {
         onNarrativeEvent?.({
-          type: 'suggestion',
-          message: `Warning: ${message}`,
+          type: 'info',
+          title: 'Warning',
+          content: message,
         });
       },
       
@@ -310,7 +329,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
     
     // Start orchestration
     abortRef.current = streamOrchestrate(input, context, callbacks);
-  }, [input, isProcessing, clearFirst, clearNetwork, investigationContext, network, onNarrativeEvent, convertEntity, convertRelationship, addEntity, addRelationship]);
+  }, [input, isProcessing, clearFirst, clearNetwork, investigationContext, network, onNarrativeEvent, convertEntity, convertRelationship, addEntity, addRelationship, dispatch]);
   
   // Cancel handler
   const handleCancel = useCallback(() => {

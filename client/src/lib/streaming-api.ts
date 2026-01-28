@@ -615,9 +615,9 @@ export type OrchestratorEventType =
 
 export interface OrchestratorCallbacks {
   onStart?: (query: string, referencedEntities: string[]) => void;
-  onThinking?: (message: string) => void;
-  onIntentClassified?: (intentType: string, confidence: number, message: string) => void;
-  onPlanCreated?: (steps: number, plan: Array<{ step: number; goal: string; search_query: string }>) => void;
+  onThinking?: (message: string, reasoning?: string) => void;
+  onIntentClassified?: (intentType: string, confidence: number, message: string, reasoning?: string) => void;
+  onPlanCreated?: (steps: number, plan: Array<{ step: number; goal: string; search_query: string }>, reasoning?: string) => void;
   onStepStarted?: (step: number, total: number, goal: string) => void;
   onStepComplete?: (step: number, entitiesFound: number, relationshipsFound: number) => void;
   onSearching?: (message: string) => void;
@@ -657,8 +657,25 @@ export function streamOrchestrate(
   callbacks: OrchestratorCallbacks
 ): () => void {
   const abortController = new AbortController();
+  let lastActivityTime = Date.now();
+  let timeoutId: NodeJS.Timeout | null = null;
+  const TIMEOUT_MS = 120000; // 2 minute timeout
+  
+  // Check for inactivity and abort if needed
+  const checkTimeout = () => {
+    if (Date.now() - lastActivityTime > TIMEOUT_MS) {
+      console.warn('Orchestrator timeout - no activity for 2 minutes');
+      callbacks.onError?.('Investigation timed out. Please try again with a simpler query.', true);
+      abortController.abort();
+      return;
+    }
+    timeoutId = setTimeout(checkTimeout, 10000); // Check every 10 seconds
+  };
   
   const runStream = async () => {
+    // Start timeout checker
+    timeoutId = setTimeout(checkTimeout, 10000);
+    
     try {
       const response = await fetch(`${API_V6}/orchestrate`, {
         method: 'POST',
@@ -709,6 +726,8 @@ export function streamOrchestrate(
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
+              // Update activity timestamp on each event
+              lastActivityTime = Date.now();
               const event = JSON.parse(line.slice(6));
               handleOrchestratorEvent(event, callbacks);
             } catch (e) {
@@ -719,18 +738,26 @@ export function streamOrchestrate(
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
+        // Cleanup timeout on abort
+        if (timeoutId) clearTimeout(timeoutId);
         return;
       }
       callbacks.onError?.(
         error instanceof Error ? error.message : 'Orchestration connection failed',
         true
       );
+    } finally {
+      // Cleanup timeout when stream ends
+      if (timeoutId) clearTimeout(timeoutId);
     }
   };
 
   runStream();
 
-  return () => abortController.abort();
+  return () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    abortController.abort();
+  };
 }
 
 /**
@@ -749,12 +776,16 @@ function handleOrchestratorEvent(event: { type: OrchestratorEventType; data: any
       break;
       
     case 'intent_classified':
-      callbacks.onIntentClassified?.(data.intent_type || '', data.confidence || 1.0, data.message || '');
+      callbacks.onIntentClassified?.(data.intent_type || '', data.confidence || 1.0, data.message || '', data.reasoning || '');
+      // Also emit thinking with reasoning
+      if (data.reasoning) {
+        callbacks.onThinking?.(data.message || '', data.reasoning);
+      }
       break;
       
     case 'plan_created':
-      callbacks.onPlanCreated?.(data.steps || 0, data.plan || []);
-      callbacks.onThinking?.(data.message || `Created ${data.steps}-step plan`);
+      callbacks.onPlanCreated?.(data.steps || 0, data.plan || [], data.reasoning || '');
+      callbacks.onThinking?.(data.message || `Created ${data.steps}-step plan`, data.reasoning || '');
       break;
       
     case 'step_started':

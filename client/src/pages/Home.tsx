@@ -187,15 +187,15 @@ function AppContentInner() {
           <NetworkCanvas onNarrativeEvent={addToNarrative} />
           <UndoHistoryPanel />
           
-          {/* Narrative Panel Toggle */}
+          {/* Narrative Panel Toggle - positioned below History button */}
           <Button
             variant="outline"
             size="sm"
-            className="absolute right-4 top-4 z-10 h-8 text-xs gap-1.5"
+            className="absolute right-4 top-14 z-10 h-8 text-xs gap-1.5 bg-card/90 hover:bg-card"
             onClick={() => setShowNarrative(!showNarrative)}
           >
             <Brain className="w-3.5 h-3.5" />
-            AI Narrative
+            Narrative
             {showNarrative ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
           </Button>
         </div>
