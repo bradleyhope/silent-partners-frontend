@@ -586,3 +586,227 @@ export default {
   extractPipeline,
   researchConnection,
 };
+
+
+// Orchestrator API v6.1
+const API_V6 = 'https://silent-partners-ai-api.onrender.com/api/v6';
+
+// Orchestrator event types
+export type OrchestratorEventType =
+  | 'orchestrator_started'
+  | 'orchestrator_thinking'
+  | 'intent_classified'
+  | 'plan_created'
+  | 'step_started'
+  | 'step_complete'
+  | 'step_warning'
+  | 'step_error'
+  | 'searching'
+  | 'research_found'
+  | 'entity_found'
+  | 'relationship_found'
+  | 'fact_found'
+  | 'enrich_complete'
+  | 'orchestrator_complete'
+  | 'error';
+
+export interface OrchestratorCallbacks {
+  onStart?: (query: string, referencedEntities: string[]) => void;
+  onThinking?: (message: string) => void;
+  onIntentClassified?: (intentType: string, confidence: number, message: string) => void;
+  onPlanCreated?: (steps: number, plan: Array<{ step: number; goal: string; search_query: string }>) => void;
+  onStepStarted?: (step: number, total: number, goal: string) => void;
+  onStepComplete?: (step: number, entitiesFound: number, relationshipsFound: number) => void;
+  onSearching?: (message: string) => void;
+  onResearchFound?: (message: string) => void;
+  onEntityFound?: (entity: PipelineEntity, isNew: boolean) => void;
+  onRelationshipFound?: (relationship: PipelineRelationship, isNew: boolean) => void;
+  onFactFound?: (entity: string, fact: { label: string; value: string; confidence: number }) => void;
+  onEnrichComplete?: (entity: string, factsFound: number) => void;
+  onComplete?: (entities: PipelineEntity[], relationships: PipelineRelationship[], message: string) => void;
+  onError?: (message: string, recoverable: boolean) => void;
+  onWarning?: (message: string) => void;
+}
+
+export interface InvestigationContext {
+  topic?: string;
+  domain?: string;
+  focus?: string;
+  key_questions?: string[];
+  entities?: Array<{ id: string; name: string; type: string }>;
+  relationships?: Array<{ source: string; target: string; type: string }>;
+}
+
+/**
+ * Stream orchestrated query execution.
+ * The Orchestrator understands intent, plans approach, and coordinates all AI functions.
+ * 
+ * Supports /EntityName syntax to reference entities from the graph.
+ */
+export function streamOrchestrate(
+  query: string,
+  context: InvestigationContext,
+  callbacks: OrchestratorCallbacks
+): () => void {
+  const abortController = new AbortController();
+  
+  const runStream = async () => {
+    try {
+      const response = await fetch(`${API_V6}/orchestrate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify({
+          query,
+          stream: true,
+          context: {
+            topic: context.topic || '',
+            domain: context.domain || '',
+            focus: context.focus || '',
+            key_questions: context.key_questions || [],
+            entities: context.entities || [],
+            relationships: context.relationships || [],
+          },
+        }),
+        signal: abortController.signal,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Orchestration failed' }));
+        callbacks.onError?.(error.error || `HTTP ${response.status}`, false);
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        callbacks.onError?.('No response stream available', false);
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              handleOrchestratorEvent(event, callbacks);
+            } catch (e) {
+              console.warn('Failed to parse orchestrator event:', line, e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+      callbacks.onError?.(
+        error instanceof Error ? error.message : 'Orchestration connection failed',
+        true
+      );
+    }
+  };
+
+  runStream();
+
+  return () => abortController.abort();
+}
+
+/**
+ * Handle individual orchestrator events.
+ */
+function handleOrchestratorEvent(event: { type: OrchestratorEventType; data: any }, callbacks: OrchestratorCallbacks) {
+  const data = event.data || {};
+  
+  switch (event.type) {
+    case 'orchestrator_started':
+      callbacks.onStart?.(data.query || '', data.referenced_entities || []);
+      break;
+      
+    case 'orchestrator_thinking':
+      callbacks.onThinking?.(data.message || 'Thinking...');
+      break;
+      
+    case 'intent_classified':
+      callbacks.onIntentClassified?.(data.intent_type || '', data.confidence || 1.0, data.message || '');
+      break;
+      
+    case 'plan_created':
+      callbacks.onPlanCreated?.(data.steps || 0, data.plan || []);
+      callbacks.onThinking?.(data.message || `Created ${data.steps}-step plan`);
+      break;
+      
+    case 'step_started':
+      callbacks.onStepStarted?.(data.step || 0, data.total || 0, data.goal || '');
+      callbacks.onThinking?.(data.message || `Step ${data.step}: ${data.goal}`);
+      break;
+      
+    case 'step_complete':
+      callbacks.onStepComplete?.(data.step || 0, data.entities_found || 0, data.relationships_found || 0);
+      break;
+      
+    case 'step_warning':
+      callbacks.onWarning?.(data.message || 'Warning');
+      break;
+      
+    case 'step_error':
+      if (data.recoverable) {
+        callbacks.onWarning?.(data.message || 'Recoverable error');
+      } else {
+        callbacks.onError?.(data.message || 'Step failed', false);
+      }
+      break;
+      
+    case 'searching':
+      callbacks.onSearching?.(data.message || 'Searching...');
+      break;
+      
+    case 'research_found':
+      callbacks.onResearchFound?.(data.message || 'Found research data');
+      break;
+      
+    case 'entity_found':
+      if (data.entity) {
+        callbacks.onEntityFound?.(data.entity, data.is_new !== false);
+      }
+      break;
+      
+    case 'relationship_found':
+      if (data.relationship) {
+        callbacks.onRelationshipFound?.(data.relationship, data.is_new !== false);
+      }
+      break;
+      
+    case 'fact_found':
+      callbacks.onFactFound?.(data.entity || '', data.fact || {});
+      break;
+      
+    case 'enrich_complete':
+      callbacks.onEnrichComplete?.(data.entity || '', data.facts_found || 0);
+      break;
+      
+    case 'orchestrator_complete':
+      callbacks.onComplete?.(
+        data.entities || [],
+        data.relationships || [],
+        data.message || 'Complete'
+      );
+      break;
+      
+    case 'error':
+      callbacks.onError?.(data.message || 'An error occurred', data.recoverable || false);
+      break;
+  }
+}
