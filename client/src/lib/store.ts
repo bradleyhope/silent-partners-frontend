@@ -29,12 +29,20 @@ export interface Relationship {
   strength?: number;
 }
 
+export interface InvestigationContext {
+  topic: string;
+  domain: string;
+  focus: string;
+  keyQuestions: string[];
+}
+
 export interface Network {
   id?: string;
   title: string;
   description: string;
   entities: Entity[];
   relationships: Relationship[];
+  investigationContext?: InvestigationContext;
   createdAt?: string;
   updatedAt?: string;
 }

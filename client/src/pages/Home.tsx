@@ -10,8 +10,8 @@
  * - Escape: Deselect current selection
  */
 
-import { useState, useCallback } from 'react';
-import { NetworkProvider } from '@/contexts/NetworkContext';
+import { useState, useCallback, useEffect } from 'react';
+import { NetworkProvider, useNetwork } from '@/contexts/NetworkContext';
 import { MobileSidebarProvider } from '@/contexts/MobileSidebarContext';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
@@ -24,21 +24,33 @@ import { Button } from '@/components/ui/button';
 import { Brain, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Wrapper component that uses the keyboard shortcuts hook
-function AppContent() {
+// Inner component that has access to network context
+function AppContentInner() {
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
+  
+  // Get network context for investigation context persistence
+  const { network, updateInvestigationContext } = useNetwork();
   
   // Narrative panel state
   const [showNarrative, setShowNarrative] = useState(false);
   const [narrativeEvents, setNarrativeEvents] = useState<NarrativeEvent[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Local investigation context state (synced with network)
   const [investigationContext, setInvestigationContext] = useState<InvestigationContext>({
     topic: '',
     domain: '',
     focus: '',
     keyQuestions: []
   });
+
+  // Sync investigation context from network when it changes (e.g., when loading a saved graph)
+  useEffect(() => {
+    if (network.investigationContext) {
+      setInvestigationContext(network.investigationContext);
+    }
+  }, [network.investigationContext]);
 
   // Add event to narrative
   const addNarrativeEvent = useCallback((event: Omit<NarrativeEvent, 'id' | 'timestamp'>) => {
@@ -108,17 +120,23 @@ function AppContent() {
     setNarrativeEvents([]);
   }, []);
 
-  // Update investigation context
+  // Update investigation context - both local state AND network state (for persistence)
   const handleUpdateContext = useCallback((context: InvestigationContext) => {
+    // Update local state
     setInvestigationContext(context);
+    
+    // Update network state (this will be saved with the graph)
+    updateInvestigationContext(context);
+    
+    // Add narrative event
     addNarrativeEvent({
       type: 'context_update',
       title: 'Context Updated',
       content: `Investigation focus: ${context.topic || 'Not set'}`,
       reasoning: 'I will use this context to better understand your investigation and provide more relevant suggestions.'
     });
-    toast.success('Investigation context updated');
-  }, [addNarrativeEvent]);
+    toast.success('Investigation context updated and will be saved with the graph');
+  }, [addNarrativeEvent, updateInvestigationContext]);
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
@@ -164,6 +182,11 @@ function AppContent() {
       </div>
     </div>
   );
+}
+
+// Wrapper component that uses the keyboard shortcuts hook
+function AppContent() {
+  return <AppContentInner />;
 }
 
 export default function Home() {

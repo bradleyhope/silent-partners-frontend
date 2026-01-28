@@ -15,6 +15,8 @@ import {
   generateId 
 } from '@/lib/store';
 
+import { InvestigationContext } from '@/lib/store';
+
 type NetworkAction =
   | { type: 'SET_NETWORK'; payload: Network }
   | { type: 'UPDATE_NETWORK'; payload: Partial<Network> }
@@ -29,6 +31,7 @@ type NetworkAction =
   | { type: 'SELECT_RELATIONSHIP'; payload: string | null }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
+  | { type: 'UPDATE_INVESTIGATION_CONTEXT'; payload: InvestigationContext }
   | { type: 'CLEAR_NETWORK' };
 
 function networkReducer(state: NetworkState, action: NetworkAction): NetworkState {
@@ -164,6 +167,15 @@ function networkReducer(state: NetworkState, action: NetworkAction): NetworkStat
     case 'SET_ERROR':
       return { ...state, error: action.payload };
     
+    case 'UPDATE_INVESTIGATION_CONTEXT':
+      return {
+        ...state,
+        network: {
+          ...state.network,
+          investigationContext: action.payload
+        }
+      };
+    
     case 'CLEAR_NETWORK':
       return { ...state, network: initialNetwork, selectedEntityId: null, selectedRelationshipId: null };
     
@@ -185,6 +197,7 @@ interface NetworkContextValue extends NetworkState {
   selectRelationship: (id: string | null) => void;
   clearNetwork: () => void;
   setNetwork: (network: Network) => void;
+  updateInvestigationContext: (context: InvestigationContext) => void;
 }
 
 const NetworkContext = createContext<NetworkContextValue | null>(null);
@@ -236,6 +249,10 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'SET_NETWORK', payload: network });
   }, []);
 
+  const updateInvestigationContext = useCallback((context: InvestigationContext) => {
+    dispatch({ type: 'UPDATE_INVESTIGATION_CONTEXT', payload: context });
+  }, []);
+
   const value: NetworkContextValue = {
     ...state,
     dispatch,
@@ -250,6 +267,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
     selectRelationship,
     clearNetwork,
     setNetwork,
+    updateInvestigationContext,
   };
 
   return <NetworkContext.Provider value={value}>{children}</NetworkContext.Provider>;
