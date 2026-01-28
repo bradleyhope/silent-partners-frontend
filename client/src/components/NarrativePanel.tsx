@@ -16,7 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Brain, ChevronDown, ChevronUp, Edit2, Send, Trash2,
   Lightbulb, AlertCircle, CheckCircle, Loader2, MessageSquare,
-  Target, HelpCircle, Sparkles, X
+  Target, HelpCircle, Sparkles, X, History, Search
 } from 'lucide-react';
 
 export interface NarrativeEvent {
@@ -37,13 +37,31 @@ export interface InvestigationContext {
   keyQuestions: string[];
 }
 
+export interface Suggestion {
+  type: string;
+  message: string;
+  action?: string;
+}
+
+export interface ResearchHistoryItem {
+  id: string;
+  query: string;
+  source: string;
+  entities_found: number;
+  relationships_found: number;
+  timestamp: string;
+}
+
 interface NarrativePanelProps {
   events: NarrativeEvent[];
   context: InvestigationContext;
+  suggestions?: Suggestion[];
+  researchHistory?: ResearchHistoryItem[];
   onUpdateContext: (context: InvestigationContext) => void;
   onActionClick: (action: string) => void;
   onChatSubmit: (message: string) => void;
   onClearEvents: () => void;
+  onSuggestionClick?: (suggestion: Suggestion) => void;
   isProcessing?: boolean;
 }
 
@@ -221,15 +239,19 @@ function ContextEditor({ context, onSave, onCancel }: {
 export default function NarrativePanel({
   events,
   context,
+  suggestions = [],
+  researchHistory = [],
   onUpdateContext,
   onActionClick,
   onChatSubmit,
   onClearEvents,
+  onSuggestionClick,
   isProcessing = false
 }: NarrativePanelProps) {
   const [isEditingContext, setIsEditingContext] = useState(false);
   const [chatMessage, setChatMessage] = useState('');
   const [showContext, setShowContext] = useState(true);
+  const [showResearchHistory, setShowResearchHistory] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new events arrive
@@ -388,6 +410,65 @@ export default function NarrativePanel({
           </div>
         </ScrollArea>
       </div>
+
+      {/* Research History */}
+      {researchHistory.length > 0 && (
+        <div className="border-t border-border shrink-0">
+          <button
+            className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-muted/30"
+            onClick={() => setShowResearchHistory(!showResearchHistory)}
+          >
+            <div className="flex items-center gap-2">
+              <History className="w-3.5 h-3.5 text-blue-500" />
+              <span className="text-xs font-medium">Research History ({researchHistory.length})</span>
+            </div>
+            {showResearchHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+          
+          {showResearchHistory && (
+            <div className="px-3 pb-3 max-h-40 overflow-y-auto">
+              <div className="space-y-1.5">
+                {researchHistory.slice(0, 10).map((item) => (
+                  <div key={item.id} className="p-2 rounded-md bg-muted/30 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <Search className="w-3 h-3 text-muted-foreground" />
+                      <span className="font-medium truncate flex-1">{item.query}</span>
+                      <span className="text-[10px] text-muted-foreground">{item.source}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-muted-foreground flex gap-3">
+                      <span>{item.entities_found} entities</span>
+                      <span>{item.relationships_found} relationships</span>
+                      <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Suggestions */}
+      {suggestions.length > 0 && (
+        <div className="border-t border-border p-3 shrink-0 bg-green-50/50 dark:bg-green-950/20">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="w-3.5 h-3.5 text-green-500" />
+            <span className="text-xs font-medium text-green-700 dark:text-green-400">Suggestions</span>
+          </div>
+          <div className="space-y-1.5">
+            {suggestions.slice(0, 3).map((suggestion, i) => (
+              <button
+                key={i}
+                className="w-full text-left p-2 rounded-md bg-white dark:bg-gray-800 border border-green-200 dark:border-green-800 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
+                onClick={() => onSuggestionClick?.(suggestion)}
+              >
+                <div className="text-xs font-medium text-green-700 dark:text-green-400">{suggestion.type}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{suggestion.message}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Chat Input */}
       <div className="border-t border-border p-3 shrink-0 bg-muted/20">

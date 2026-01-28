@@ -608,6 +608,9 @@ export type OrchestratorEventType =
   | 'fact_found'
   | 'enrich_complete'
   | 'orchestrator_complete'
+  | 'suggestions'  // NEW v2.0
+  | 'research_cached'  // NEW v2.0
+  | 'graph_analysis'  // NEW v2.0
   | 'error';
 
 export interface OrchestratorCallbacks {
@@ -626,6 +629,10 @@ export interface OrchestratorCallbacks {
   onComplete?: (entities: PipelineEntity[], relationships: PipelineRelationship[], message: string) => void;
   onError?: (message: string, recoverable: boolean) => void;
   onWarning?: (message: string) => void;
+  // NEW v2.0 callbacks
+  onSuggestions?: (suggestions: Array<{ type: string; message: string; action?: string }>) => void;
+  onResearchCached?: (query: string, message: string) => void;
+  onGraphAnalysis?: (analysis: { entity_count: number; relationship_count: number; central_nodes: string[]; orphans: string[]; gaps: string[] }) => void;
 }
 
 export interface InvestigationContext {
@@ -635,6 +642,7 @@ export interface InvestigationContext {
   key_questions?: string[];
   entities?: Array<{ id: string; name: string; type: string }>;
   relationships?: Array<{ source: string; target: string; type: string }>;
+  graph_id?: number;  // NEW: For research memory
 }
 
 /**
@@ -661,6 +669,7 @@ export function streamOrchestrate(
         body: JSON.stringify({
           query,
           stream: true,
+          graph_id: context.graph_id,  // NEW: For research memory
           context: {
             topic: context.topic || '',
             domain: context.domain || '',
@@ -807,6 +816,20 @@ function handleOrchestratorEvent(event: { type: OrchestratorEventType; data: any
       
     case 'error':
       callbacks.onError?.(data.message || 'An error occurred', data.recoverable || false);
+      break;
+      
+    // NEW v2.0 events
+    case 'suggestions':
+      callbacks.onSuggestions?.(data.suggestions || []);
+      break;
+      
+    case 'research_cached':
+      callbacks.onResearchCached?.(data.query || '', data.message || 'Using cached research');
+      callbacks.onThinking?.(data.message || 'Using cached research');
+      break;
+      
+    case 'graph_analysis':
+      callbacks.onGraphAnalysis?.(data.analysis || {});
       break;
   }
 }
