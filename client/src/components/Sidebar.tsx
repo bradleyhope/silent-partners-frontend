@@ -27,6 +27,7 @@ import pako from 'pako';
 import ExportModal from './ExportModal';
 import StreamingProgress from './StreamingProgress';
 import { useStreamingPipeline } from '@/hooks/useStreamingPipeline';
+import UnifiedAIInput from './UnifiedAIInput';
 
 // Example networks
 const EXAMPLE_NETWORKS = [
@@ -1159,90 +1160,20 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
 
       <div className="border-t border-sidebar-border" />
 
-      {/* AI Input Section */}
+      {/* AI Input Section - Unified Orchestrator */}
       <Collapsible open={aiOpen} onOpenChange={setAiOpen}>
         <CollapsibleTrigger className="w-full px-4 py-3 flex items-center justify-between hover:bg-sidebar-accent/50 transition-colors">
           <span className="section-header mb-0 border-0 pb-0">AI</span>
           <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${aiOpen ? '' : '-rotate-90'}`} />
         </CollapsibleTrigger>
         <CollapsibleContent className="px-4 pb-4 space-y-3">
-          {/* AI Action Mode Toggle */}
-          <div className="flex gap-1 p-1 bg-muted rounded-lg">
-            <button
-              onClick={() => setAiActionMode('extract')}
-              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
-                aiActionMode === 'extract'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Extract
-            </button>
-            <button
-              onClick={() => setAiActionMode('discover')}
-              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
-                aiActionMode === 'discover'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Discover
-            </button>
-            <button
-              onClick={() => setAiActionMode('connect')}
-              className={`flex-1 px-2 py-1.5 text-xs rounded-md transition-colors ${
-                aiActionMode === 'connect'
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Connect
-            </button>
-          </div>
-
-          <Textarea
-            value={aiInput}
-            onChange={(e) => setAiInput(e.target.value)}
-            className="text-sm bg-background resize-none min-h-[100px]"
-            placeholder={
-              aiActionMode === 'extract'
-                ? 'Paste an article or document text to extract entities and relationships...'
-                : aiActionMode === 'discover'
-                ? 'Ask a question like "Who are the key investors in SpaceX?"'
-                : 'Enter two names like "Elon Musk and Peter Thiel" to find connections...'
-            }
-            disabled={isProcessing || isStreamingActive}
+          {/* Unified AI Input with Orchestrator */}
+          <UnifiedAIInput 
+            onNarrativeEvent={onNarrativeEvent}
+            clearFirst={aiMode === 'new'}
+            investigationContext={network.investigationContext}
           />
           
-          {/* Streaming Progress Indicator */}
-          {(isStreamingActive || streamingState.error) && (
-            <StreamingProgress state={streamingState} onCancel={cancelStreaming} />
-          )}
-          
-          <Button 
-            onClick={aiActionMode === 'connect' ? handleConnectSubmit : handleAiSubmit} 
-            disabled={isProcessing || isStreamingActive || !aiInput.trim()}
-            className="w-full bg-primary hover:bg-primary/90"
-          >
-            {isStreamingActive ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Building Graph...
-              </>
-            ) : isProcessing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : aiActionMode === 'extract' ? (
-              'Extract Network'
-            ) : aiActionMode === 'discover' ? (
-              'Discover Connections'
-            ) : (
-              <><Link className="w-4 h-4 mr-2" />Find Connection</>
-            )}
-          </Button>
-
           <RadioGroup value={aiMode} onValueChange={(v) => setAiMode(v as 'add' | 'new')} className="flex gap-4">
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="add" id="add" />
