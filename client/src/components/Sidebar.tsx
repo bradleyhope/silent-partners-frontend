@@ -1252,6 +1252,7 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
             onNarrativeEvent={onNarrativeEvent}
             clearFirst={aiMode === 'new'}
             investigationContext={network.investigationContext}
+            initialQuery={aiInput}
           />
           
           <RadioGroup value={aiMode} onValueChange={(v) => setAiMode(v as 'add' | 'new')} className="flex gap-4">

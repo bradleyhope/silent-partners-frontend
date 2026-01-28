@@ -31,11 +31,12 @@ interface UnifiedAIInputProps {
   graphId?: number;  // NEW: For research memory
   onSuggestions?: (suggestions: Array<{ type: string; message: string; action?: string }>) => void;
   onResearchHistory?: (item: { query: string; source: string }) => void;
+  initialQuery?: string;  // Pre-populate input from templates
 }
 
-export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext, graphId, onSuggestions, onResearchHistory }: UnifiedAIInputProps) {
+export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext, graphId, onSuggestions, onResearchHistory, initialQuery }: UnifiedAIInputProps) {
   const { network, addEntity, addRelationship, clearNetwork, dispatch } = useNetwork();
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(initialQuery || '');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteResults, setAutocompleteResults] = useState<Entity[]>([]);
@@ -56,6 +57,13 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       }
     };
   }, []);
+  
+  // Update input when initialQuery prop changes (e.g., from template selection)
+  useEffect(() => {
+    if (initialQuery) {
+      setInput(initialQuery);
+    }
+  }, [initialQuery]);
   
   // Handle input change and check for / trigger
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
