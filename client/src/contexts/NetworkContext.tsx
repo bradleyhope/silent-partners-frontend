@@ -141,9 +141,12 @@ function networkReducer(state: NetworkState, action: NetworkAction): NetworkStat
           return sourceExists && targetExists;
         });
       
-      console.log('Adding entities:', newEntities.length, 'relationships:', newRelationships.length);
-      console.log('Name to ID map:', Object.fromEntries(nameToId));
-      console.log('Relationships after mapping:', newRelationships);
+      // Debug logging only in development
+      if (import.meta.env.DEV) {
+        console.log('Adding entities:', newEntities.length, 'relationships:', newRelationships.length);
+        console.log('Name to ID map:', Object.fromEntries(nameToId));
+        console.log('Relationships after mapping:', newRelationships);
+      }
       
       return {
         ...state,
