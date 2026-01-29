@@ -608,18 +608,26 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       selectEntity(d.id);
     });
 
-    // Tick handler
+    // Tick handler with requestAnimationFrame throttling for better performance
+    let frameRequested = false;
     simulation.on('tick', () => {
-      linkPaths.attr('d', d => {
-        const source = d.source as SimulationNode;
-        const target = d.target as SimulationNode;
-        return generateCurvedPath(source, target);
-      });
+      if (!frameRequested) {
+        frameRequested = true;
+        requestAnimationFrame(() => {
+          linkPaths.attr('d', d => {
+            const source = d.source as SimulationNode;
+            const target = d.target as SimulationNode;
+            return generateCurvedPath(source, target);
+          });
 
-      // Only update transform for nodes that aren't animating in
-      nodeContainers
-        .filter(d => !d.isNew || (Date.now() - (d.addedAt || 0)) > ANIMATION.NODE_FADE_DURATION)
-        .attr('transform', d => `translate(${d.x},${d.y}) scale(1)`);
+          // Only update transform for nodes that aren't animating in
+          nodeContainers
+            .filter(d => !d.isNew || (Date.now() - (d.addedAt || 0)) > ANIMATION.NODE_FADE_DURATION)
+            .attr('transform', d => `translate(${d.x},${d.y}) scale(1)`);
+
+          frameRequested = false;
+        });
+      }
     });
 
   }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath, themeConfig, showAllLabels, theme, getNodeRadius, getNodeFill, getNodeStrokeWidth, getLinkColor, getEntityColor]);
