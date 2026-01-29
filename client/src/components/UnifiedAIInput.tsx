@@ -48,6 +48,12 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
   
   // Track entity ID mapping for this session
   const entityIdMap = useRef<Map<string, string>>(new Map());
+
+  // Track all entities added during this session (for relationship resolution)
+  const sessionEntities = useRef<Map<string, Entity>>(new Map());
+
+  // Buffer for relationships that couldn't be resolved immediately
+  const pendingRelationships = useRef<PipelineRelationship[]>([]);
   
   // Cleanup abort controller on unmount to prevent memory leaks
   useEffect(() => {
@@ -138,24 +144,49 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
   const convertEntity = useCallback((pipelineEntity: PipelineEntity): Entity => {
     const id = generateId();
     entityIdMap.current.set(pipelineEntity.id || pipelineEntity.name, id);
-    return {
+    // Also map by lowercase name for case-insensitive lookup
+    entityIdMap.current.set(pipelineEntity.name.toLowerCase(), id);
+
+    const entity: Entity = {
       id,
       name: pipelineEntity.name,
       type: (pipelineEntity.type as Entity['type']) || 'unknown',
       description: pipelineEntity.description,
       importance: pipelineEntity.importance || 5,
     };
+
+    // Track in session entities for relationship resolution
+    sessionEntities.current.set(id, entity);
+    sessionEntities.current.set(pipelineEntity.name.toLowerCase(), entity);
+
+    return entity;
   }, []);
   
+  // Find entity ID from various sources (session, entity map, or existing network)
+  const findEntityId = useCallback((nameOrId: string): string | undefined => {
+    // First check the entity ID map (most reliable for current session)
+    const fromMap = entityIdMap.current.get(nameOrId) ||
+                    entityIdMap.current.get(nameOrId.toLowerCase());
+    if (fromMap) return fromMap;
+
+    // Then check session entities
+    const fromSession = sessionEntities.current.get(nameOrId.toLowerCase());
+    if (fromSession) return fromSession.id;
+
+    // Finally fall back to existing network entities
+    const fromNetwork = network.entities.find(
+      e => e.name.toLowerCase() === nameOrId.toLowerCase() || e.id === nameOrId
+    );
+    return fromNetwork?.id;
+  }, [network.entities]);
+
   // Convert pipeline relationship to our Relationship format
   const convertRelationship = useCallback((pipelineRel: PipelineRelationship): Relationship | null => {
-    const sourceId = entityIdMap.current.get(pipelineRel.source) || 
-                     network.entities.find(e => e.name.toLowerCase() === pipelineRel.source.toLowerCase())?.id;
-    const targetId = entityIdMap.current.get(pipelineRel.target) ||
-                     network.entities.find(e => e.name.toLowerCase() === pipelineRel.target.toLowerCase())?.id;
-    
+    const sourceId = findEntityId(pipelineRel.source);
+    const targetId = findEntityId(pipelineRel.target);
+
     if (!sourceId || !targetId) return null;
-    
+
     return {
       id: generateId(),
       source: sourceId,
@@ -163,14 +194,32 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       type: pipelineRel.type || 'related_to',
       label: pipelineRel.label || pipelineRel.type,
     };
-  }, [network.entities]);
+  }, [findEntityId]);
+
+  // Process any pending relationships that couldn't be resolved earlier
+  const processPendingRelationships = useCallback(() => {
+    const stillPending: PipelineRelationship[] = [];
+
+    for (const pipelineRel of pendingRelationships.current) {
+      const converted = convertRelationship(pipelineRel);
+      if (converted) {
+        addRelationship(converted);
+      } else {
+        stillPending.push(pipelineRel);
+      }
+    }
+
+    pendingRelationships.current = stillPending;
+  }, [convertRelationship, addRelationship]);
   
   // Handle submit
   const handleSubmit = useCallback(() => {
     if (!input.trim() || isProcessing) return;
-    
+
     setIsProcessing(true);
     entityIdMap.current.clear();
+    sessionEntities.current.clear();
+    pendingRelationships.current = [];
     
     // Clear network if requested
     if (clearFirst) {
@@ -262,14 +311,19 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
             title: 'Entity Found',
             content: `${entity.name} (${entity.type})`,
           });
+          // Try to resolve any pending relationships now that we have a new entity
+          processPendingRelationships();
         }
       },
-      
+
       onRelationshipFound: (relationship, isNew) => {
         if (isNew) {
           const converted = convertRelationship(relationship);
           if (converted) {
             addRelationship(converted);
+          } else {
+            // Buffer the relationship to try again later when entities arrive
+            pendingRelationships.current.push(relationship);
           }
         }
       },
@@ -283,10 +337,13 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       },
       
       onComplete: (entities, relationships, message) => {
+        // Process any remaining pending relationships before completing
+        processPendingRelationships();
+
         setIsProcessing(false);
         setProgress(null);  // Clear progress
         abortRef.current = null;  // Clear abort ref
-        
+
         // Clear the loading toast and show success
         toast.dismiss('orchestrator-progress');
         
@@ -382,7 +439,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
     
     // Start orchestration
     abortRef.current = streamOrchestrate(input, context, callbacks);
-  }, [input, isProcessing, clearFirst, clearNetwork, investigationContext, network, onNarrativeEvent, convertEntity, convertRelationship, addEntity, addRelationship, dispatch]);
+  }, [input, isProcessing, clearFirst, clearNetwork, investigationContext, network, onNarrativeEvent, convertEntity, convertRelationship, addEntity, addRelationship, dispatch, processPendingRelationships]);
   
   // Cancel handler
   const handleCancel = useCallback(() => {
