@@ -76,6 +76,11 @@ export interface PipelineEntity {
   aliases?: string[];
   sources?: string[];
   is_target?: boolean;
+  // Source provenance fields from backend
+  source_text?: string;
+  source_query?: string;
+  source_type?: 'document' | 'web' | 'manual' | 'enrichment';
+  created_at?: string;
 }
 
 export interface PipelineRelationship {
