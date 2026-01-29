@@ -429,6 +429,7 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
 
   const handleEnrich = async () => {
     setIsEnriching(true);
+    toast.info(`Enriching ${entity.name}...`, { duration: 2000 });
     onAddToNarrative?.(`🔍 Enriching ${entity.name}...`);
     
     try {

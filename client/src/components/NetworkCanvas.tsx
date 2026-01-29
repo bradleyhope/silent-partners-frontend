@@ -410,6 +410,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const nodeGroup = g.select<SVGGElement>('g.nodes');
 
     const drag = d3.drag<SVGGElement, SimulationNode>()
+      .clickDistance(5)  // Allow clicks up to 5px movement (fixes click vs drag detection)
       .on('start', function(event, d) {
         if (!event.active) simulation.alphaTarget(0.1).restart();
         d.fx = d.x;
