@@ -1573,9 +1573,16 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
                 <SelectValue placeholder="Select theme" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="default">Default</SelectItem>
+                {/* Artistic Themes */}
                 <SelectItem value="lombardi">Lombardi Classic</SelectItem>
+                <SelectItem value="lombardiRed">Lombardi Investigative</SelectItem>
+                {/* Functional Themes */}
+                <SelectItem value="colorful">Colorful</SelectItem>
+                <SelectItem value="professional">Professional</SelectItem>
                 <SelectItem value="dark">Dark Mode</SelectItem>
+                {/* Export Themes */}
+                <SelectItem value="highContrast">High Contrast</SelectItem>
+                <SelectItem value="print">Print Ready</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -2,6 +2,7 @@
  * Silent Partners - Network Canvas
  * 
  * D3-powered network visualization with smooth animations and elegant transitions.
+ * Now with comprehensive theme support for multiple visual styles.
  * 
  * Animation Features:
  * - Nodes fade in smoothly with scale animation
@@ -14,7 +15,7 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
+import { useCanvasTheme, shouldUseSecondaryColor } from '@/contexts/CanvasThemeContext';
 import { Entity, Relationship, entityColors, generateId } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,12 +44,12 @@ interface SimulationLink {
   type?: string;
   label?: string;
   status?: 'confirmed' | 'suspected' | 'former';
-  confidence?: number;  // 0-1 confidence score for visual styling
+  confidence?: number;
   isNew?: boolean;
   addedAt?: number;
 }
 
-// Lombardi node styles based on entity type
+// Lombardi-style: hollow nodes for organizations, solid for people
 const isHollowNode = (type: Entity['type']): boolean => {
   return ['corporation', 'organization', 'financial', 'government'].includes(type);
 };
@@ -70,7 +71,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { network, selectedEntityId, selectEntity, updateEntity, dispatch } = useNetwork();
-  const { theme, config: themeConfig, showAllLabels } = useCanvasTheme();
+  const { theme, config: themeConfig, showAllLabels, getEntityColor } = useCanvasTheme();
   
   // Track previous entities/relationships for animation
   const prevEntitiesRef = useRef<Set<string>>(new Set());
@@ -90,6 +91,48 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   const nodesRef = useRef<SimulationNode[]>([]);
   const linksRef = useRef<SimulationLink[]>([]);
 
+  // Helper function to get node radius based on theme and entity
+  const getNodeRadius = useCallback((entity: SimulationNode): number => {
+    if (themeConfig.isLombardiStyle) {
+      return isHollowNode(entity.type) ? themeConfig.nodeHollowSize : themeConfig.nodeSolidSize;
+    }
+    // Scale based on importance for non-Lombardi themes
+    const importance = entity.importance || 5;
+    const scale = (importance - 1) / 9; // Normalize 1-10 to 0-1
+    return themeConfig.nodeBaseSize + scale * (themeConfig.nodeMaxSize - themeConfig.nodeBaseSize);
+  }, [themeConfig]);
+
+  // Helper function to get node fill color
+  const getNodeFill = useCallback((entity: SimulationNode): string => {
+    if (themeConfig.isLombardiStyle) {
+      // Lombardi: hollow for orgs (background fill), solid for people (stroke color)
+      return isHollowNode(entity.type) ? themeConfig.background : themeConfig.nodeStroke;
+    }
+    if (themeConfig.useEntityColors) {
+      return getEntityColor(entity.type);
+    }
+    return themeConfig.nodeFill;
+  }, [themeConfig, getEntityColor]);
+
+  // Helper function to get node stroke width
+  const getNodeStrokeWidth = useCallback((entity: SimulationNode, isSelected: boolean): number => {
+    if (isSelected) return themeConfig.nodeStrokeWidth + 1;
+    if (themeConfig.isLombardiStyle) {
+      return isHollowNode(entity.type) ? themeConfig.nodeStrokeWidth : 0;
+    }
+    return themeConfig.nodeStrokeWidth;
+  }, [themeConfig]);
+
+  // Helper function to get link color (handles lombardiRed secondary color)
+  const getLinkColor = useCallback((link: SimulationLink): string => {
+    if (themeConfig.secondaryColor && link.label) {
+      if (shouldUseSecondaryColor(link.label)) {
+        return themeConfig.secondaryColor;
+      }
+    }
+    return themeConfig.linkStroke;
+  }, [themeConfig]);
+
   // Handle resize
   useEffect(() => {
     const updateDimensions = () => {
@@ -104,7 +147,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  // Generate quadratic curved path
+  // Generate quadratic curved path with configurable intensity
   const generateCurvedPath = useCallback((source: SimulationNode, target: SimulationNode): string => {
     const dx = target.x - source.x;
     const dy = target.y - source.y;
@@ -116,13 +159,13 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const perpY = dx / (dist || 1);
     
     const curveDirection = source.id < target.id ? 1 : -1;
-    const curveOffset = dist * 0.15 * curveDirection;  // Lombardi-style curve intensity
+    const curveOffset = dist * 0.15 * themeConfig.curveIntensity * curveDirection;
     
     const cpX = midX + perpX * curveOffset;
     const cpY = midY + perpY * curveOffset;
     
     return `M${source.x},${source.y}Q${cpX},${cpY} ${target.x},${target.y}`;
-  }, []);
+  }, [themeConfig.curveIntensity]);
 
   // Initialize SVG structure once
   useEffect(() => {
@@ -191,10 +234,9 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
     // Click to deselect (only if clicking on background, not on nodes)
     svg.on('click', (event) => {
-      // Check if click target is a node or part of a node group
       const target = event.target as Element;
       if (target.closest('.node') || target.closest('.link')) {
-        return; // Don't deselect if clicking on a node or link
+        return;
       }
       selectEntity(null);
       setCardPosition(null);
@@ -210,9 +252,6 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
     const g = gRef.current;
     const { width, height } = dimensions;
-    const isLombardiMode = theme === 'lombardi';
-    const lineWidth = isLombardiMode ? 1 : 1.5;
-    const useColors = themeConfig.useEntityColors !== false;
     const now = Date.now();
 
     // Determine which entities/relationships are new
@@ -264,7 +303,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         ...r,
         source: r.source,
         target: r.target,
-        confidence: (r as any).confidence ?? 0.8,  // Default to 0.8 if not specified
+        confidence: (r as any).confidence ?? 0.8,
         isNew: newRelIds.has(r.id),
         addedAt: newRelIds.has(r.id) ? now + (nodes.length + i) * ANIMATION.STAGGER_DELAY : 0,
       }));
@@ -284,20 +323,13 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         .velocityDecay(0.5);
     } else {
       simulationRef.current.nodes(nodes);
-      (simulationRef.current.force('link') as d3.ForceLink<SimulationNode, SimulationLink>)?.links(links);
+      (simulationRef.current.force('link') as d3.ForceLink<SimulationNode, SimulationLink>)
+        .links(links);
+      simulationRef.current.force('center', d3.forceCenter(width / 2, height / 2).strength(0.05));
       simulationRef.current.alpha(0.3).restart();
     }
 
     const simulation = simulationRef.current;
-
-    // Expose state for export
-    (window as any).__SILENT_PARTNERS_STATE__ = {
-      nodes,
-      links,
-      theme,
-      themeConfig,
-      getNodePositions: () => nodes.map(n => ({ id: n.id, name: n.name, type: n.type, x: n.x, y: n.y })),
-    };
 
     // --- RENDER LINKS ---
     const linkGroup = g.select<SVGGElement>('g.links');
@@ -318,17 +350,16 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       .attr('class', 'link-path')
       .attr('id', d => `link-path-${d.id}`)
       .attr('fill', 'none')
-      .attr('stroke', themeConfig.linkStroke)
-      .attr('stroke-width', lineWidth)
+      .attr('stroke', d => getLinkColor(d))
+      .attr('stroke-width', themeConfig.linkWidth)
       .attr('stroke-opacity', 0)
       .attr('stroke-dasharray', d => {
-        // Confidence-based styling: high (solid), medium (dashed), low (dotted)
         if (d.status === 'suspected') return '4,4';
         if (d.status === 'former') return '2,3';
         const conf = d.confidence ?? 0.8;
-        if (conf < 0.4) return '2,2';  // Low confidence: dotted
-        if (conf < 0.7) return '6,3';  // Medium confidence: dashed
-        return 'none';  // High confidence: solid
+        if (conf < 0.4) return '2,2';
+        if (conf < 0.7) return '6,3';
+        return 'none';
       })
       .style('cursor', 'pointer');
 
@@ -337,10 +368,15 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       .transition()
       .delay(d => d.isNew ? Math.max(0, (d.addedAt || 0) - now) : 0)
       .duration(ANIMATION.EDGE_DRAW_DURATION)
-      .attr('stroke-opacity', isLombardiMode ? 0.85 : 0.5);
+      .attr('stroke-opacity', themeConfig.isLombardiStyle ? 0.85 : 0.6);
 
     // Merge and update all links
     const linkPaths = linkEnter.merge(linkSelection);
+
+    // Update link colors on theme change
+    linkPaths
+      .attr('stroke', d => getLinkColor(d))
+      .attr('stroke-width', themeConfig.linkWidth);
 
     // Link labels
     const linkLabelsSelection = linkGroup.selectAll<SVGTextElement, SimulationLink>('text.link-label')
@@ -351,8 +387,8 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const linkLabelsEnter = linkLabelsSelection.enter()
       .append('text')
       .attr('class', 'link-label')
-      .attr('font-family', isLombardiMode ? "'Source Serif 4', Georgia, serif" : "'IBM Plex Mono', monospace")
-      .attr('font-size', isLombardiMode ? '9px' : '8px')
+      .attr('font-family', themeConfig.fontFamily)
+      .attr('font-size', `${themeConfig.linkLabelSize}px`)
       .attr('fill', themeConfig.linkLabelText || themeConfig.textColor)
       .attr('opacity', 0)
       .attr('pointer-events', 'none');
@@ -372,6 +408,12 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
     const linkLabelsGroup = linkLabelsEnter.merge(linkLabelsSelection);
 
+    // Update link label styles on theme change
+    linkLabelsGroup
+      .attr('font-family', themeConfig.fontFamily)
+      .attr('font-size', `${themeConfig.linkLabelSize}px`)
+      .attr('fill', themeConfig.linkLabelText || themeConfig.textColor);
+
     // Link hover/click handlers
     linkPaths
       .on('click', function(event, d) {
@@ -389,7 +431,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
           .transition()
           .duration(150)
           .attr('stroke', '#B8860B')
-          .attr('stroke-width', lineWidth + 1)
+          .attr('stroke-width', themeConfig.linkWidth + 1)
           .attr('stroke-opacity', 1);
         linkLabelsGroup.filter(l => l.id === d.id)
           .transition()
@@ -400,9 +442,9 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         d3.select(this)
           .transition()
           .duration(150)
-          .attr('stroke', themeConfig.linkStroke)
-          .attr('stroke-width', lineWidth)
-          .attr('stroke-opacity', isLombardiMode ? 0.85 : 0.5);
+          .attr('stroke', getLinkColor(d))
+          .attr('stroke-width', themeConfig.linkWidth)
+          .attr('stroke-opacity', themeConfig.isLombardiStyle ? 0.85 : 0.6);
         if (!showAllLabels) {
           linkLabelsGroup.filter(l => l.id === d.id)
             .transition()
@@ -415,7 +457,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const nodeGroup = g.select<SVGGElement>('g.nodes');
 
     const drag = d3.drag<SVGGElement, SimulationNode>()
-      .clickDistance(5)  // Allow clicks up to 5px movement (fixes click vs drag detection)
+      .clickDistance(5)
       .on('start', function(event, d) {
         if (!event.active) simulation.alphaTarget(0.1).restart();
         d.fx = d.x;
@@ -457,42 +499,25 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     // Add circle to new nodes
     nodeEnter.append('circle')
       .attr('class', 'node-circle')
-      .attr('r', d => {
-        if (isLombardiMode) {
-          return isHollowNode(d.type) ? 8 : 4;
-        }
-        return 7 + (d.importance || 5) * 0.4;
-      })
-      .attr('fill', d => {
-        if (isLombardiMode) {
-          return isHollowNode(d.type) ? themeConfig.background : themeConfig.nodeStroke;
-        }
-        return useColors ? (entityColors[d.type] || entityColors.unknown) : themeConfig.nodeFill;
-      })
+      .attr('r', d => getNodeRadius(d))
+      .attr('fill', d => getNodeFill(d))
       .attr('stroke', d => d.id === selectedEntityId ? '#B8860B' : themeConfig.nodeStroke)
-      .attr('stroke-width', d => {
-        if (d.id === selectedEntityId) return 2.5;
-        if (isLombardiMode) return isHollowNode(d.type) ? 1.2 : 0;
-        return useColors ? 1.5 : 1;
-      });
+      .attr('stroke-width', d => getNodeStrokeWidth(d, d.id === selectedEntityId));
 
     // Add pulse ring for new nodes
     nodeEnter.filter(d => d.isNew)
       .append('circle')
       .attr('class', 'pulse-ring')
-      .attr('r', d => {
-        const baseR = isLombardiMode ? (isHollowNode(d.type) ? 8 : 4) : 7 + (d.importance || 5) * 0.4;
-        return baseR;
-      })
+      .attr('r', d => getNodeRadius(d))
       .attr('fill', 'none')
-      .attr('stroke', d => useColors ? (entityColors[d.type] || '#B8860B') : '#B8860B')
+      .attr('stroke', d => themeConfig.useEntityColors ? getEntityColor(d.type) : '#B8860B')
       .attr('stroke-width', 2)
       .attr('opacity', 0.8);
 
     // Add labels to new nodes
     nodeEnter.each(function(d) {
       const container = d3.select(this);
-      const nodeRadius = isLombardiMode ? (isHollowNode(d.type) ? 8 : 4) : 7 + (d.importance || 5) * 0.4;
+      const nodeRadius = getNodeRadius(d);
       
       const labelGroup = container.append('g')
         .attr('class', 'label-group')
@@ -503,8 +528,8 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         .attr('class', 'node-name')
         .attr('dy', '0.35em')
         .attr('text-anchor', 'start')
-        .attr('font-family', isLombardiMode ? "'Source Serif 4', Georgia, serif" : "'Source Sans 3', sans-serif")
-        .attr('font-size', '11px')
+        .attr('font-family', themeConfig.fontFamily)
+        .attr('font-size', `${themeConfig.labelSize}px`)
         .attr('font-weight', '500')
         .attr('fill', themeConfig.textColor)
         .text(d.name);
@@ -540,8 +565,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       .ease(d3.easeQuadOut)
       .attr('r', d => {
         const node = d as unknown as SimulationNode;
-        const baseR = isLombardiMode ? (isHollowNode(node.type) ? 8 : 4) : 7 + (node.importance || 5) * 0.4;
-        return baseR + 25;
+        return getNodeRadius(node) + 25;
       })
       .attr('opacity', 0)
       .remove();
@@ -549,16 +573,24 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     // Merge selections
     const nodeContainers = nodeEnter.merge(nodeSelection);
 
-    // Update existing node styles
+    // Update existing node styles (for theme changes and selection)
     nodeContainers.select('circle.node-circle')
       .transition()
       .duration(200)
+      .attr('r', d => getNodeRadius(d))
+      .attr('fill', d => getNodeFill(d))
       .attr('stroke', d => d.id === selectedEntityId ? '#B8860B' : themeConfig.nodeStroke)
-      .attr('stroke-width', d => {
-        if (d.id === selectedEntityId) return 2.5;
-        if (isLombardiMode) return isHollowNode(d.type) ? 1.2 : 0;
-        return useColors ? 1.5 : 1;
-      });
+      .attr('stroke-width', d => getNodeStrokeWidth(d, d.id === selectedEntityId));
+
+    // Update label styles on theme change
+    nodeContainers.select('.label-group text.node-name')
+      .attr('font-family', themeConfig.fontFamily)
+      .attr('font-size', `${themeConfig.labelSize}px`)
+      .attr('fill', themeConfig.textColor);
+
+    // Update label position if node size changed
+    nodeContainers.select('.label-group')
+      .attr('transform', d => `translate(${getNodeRadius(d) + 6}, 0)`);
 
     // Node click handler
     nodeContainers.on('click', function(event, d) {
@@ -590,10 +622,10 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         .attr('transform', d => `translate(${d.x},${d.y}) scale(1)`);
     });
 
-  }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath, themeConfig, showAllLabels, theme]);
+  }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, generateCurvedPath, themeConfig, showAllLabels, theme, getNodeRadius, getNodeFill, getNodeStrokeWidth, getLinkColor, getEntityColor]);
 
-  // Only show dot pattern for default theme
-  const showDotPattern = theme === 'default';
+  // Show dot pattern only for colorful theme
+  const showDotPattern = theme === 'colorful';
 
   // Zoom controls
   const handleZoomIn = () => {
@@ -636,12 +668,12 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ background: themeConfig.background }}>
-      {/* Dot pattern background for default theme */}
+      {/* Dot pattern background for colorful theme */}
       {showDotPattern && (
         <div 
           className="absolute inset-0 pointer-events-none"
           style={{
-            backgroundImage: `radial-gradient(circle, ${themeConfig.dotColor || 'rgba(0,0,0,0.15)'} 1px, transparent 1px)`,
+            backgroundImage: `radial-gradient(circle, ${themeConfig.gridColor || 'rgba(0,0,0,0.15)'} 1px, transparent 1px)`,
             backgroundSize: '20px 20px',
           }}
         />

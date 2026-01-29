@@ -186,7 +186,7 @@ export default function ShareView() {
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', themeConfig.linkColor);
+      .attr('fill', themeConfig.linkStroke);
 
     // Create links
     const linkGroup = g.append('g').attr('class', 'links');
@@ -214,7 +214,7 @@ export default function ShareView() {
     linkElements.append('path')
       .attr('class', 'link-path')
       .attr('fill', 'none')
-      .attr('stroke', themeConfig.linkColor)
+      .attr('stroke', themeConfig.linkStroke)
       .attr('stroke-width', 1)
       .attr('marker-end', 'url(#arrow-share)');
 
@@ -236,23 +236,45 @@ export default function ShareView() {
         }
       });
 
-    // Add circles for nodes
+    // Add circles for nodes - using theme config for sizing and colors
+    const isLombardiStyle = themeConfig.isLombardiStyle;
+    const isHollowNode = (type: string) => ['corporation', 'organization', 'financial', 'government'].includes(type);
+    
     nodeElements.append('circle')
-      .attr('r', d => 6 + (d.importance || 5) * 0.5)
-      .attr('fill', d => {
-        if (themeConfig.name === 'lombardi') {
-          return d.type === 'person' ? themeConfig.nodeColor : 'transparent';
+      .attr('r', d => {
+        if (isLombardiStyle) {
+          return isHollowNode(d.type) ? themeConfig.nodeHollowSize : themeConfig.nodeSolidSize;
         }
-        return themeConfig.entityColors[d.type] || themeConfig.nodeColor;
+        return themeConfig.nodeBaseSize + (d.importance || 5) * 0.3;
       })
-      .attr('stroke', themeConfig.nodeColor)
-      .attr('stroke-width', themeConfig.name === 'lombardi' ? 1.5 : 0);
+      .attr('fill', d => {
+        if (isLombardiStyle) {
+          return isHollowNode(d.type) ? themeConfig.background : themeConfig.nodeStroke;
+        }
+        if (themeConfig.useEntityColors) {
+          return themeConfig.entityColors[d.type] || themeConfig.nodeStroke;
+        }
+        return themeConfig.nodeFill;
+      })
+      .attr('stroke', themeConfig.nodeStroke)
+      .attr('stroke-width', d => {
+        if (isLombardiStyle) {
+          return isHollowNode(d.type) ? themeConfig.nodeStrokeWidth : 0;
+        }
+        return themeConfig.nodeStrokeWidth;
+      });
 
     // Add labels
     nodeElements.append('text')
-      .attr('dx', 12)
+      .attr('dx', d => {
+        if (isLombardiStyle) {
+          return (isHollowNode(d.type) ? themeConfig.nodeHollowSize : themeConfig.nodeSolidSize) + 6;
+        }
+        return themeConfig.nodeBaseSize + 6;
+      })
       .attr('dy', 4)
-      .attr('font-size', '11px')
+      .attr('font-family', themeConfig.fontFamily)
+      .attr('font-size', `${themeConfig.labelSize}px`)
       .attr('fill', themeConfig.textColor)
       .text(d => d.name);
 
