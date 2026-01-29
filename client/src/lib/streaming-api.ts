@@ -83,6 +83,8 @@ export interface PipelineRelationship {
   id: string;
   source: string;
   target: string;
+  source_name?: string;
+  target_name?: string;
   type: string;
   label?: string;
   description?: string;

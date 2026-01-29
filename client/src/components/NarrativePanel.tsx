@@ -22,7 +22,7 @@ import {
 export interface NarrativeEvent {
   id: string;
   timestamp: string;
-  type: 'extraction' | 'context_update' | 'reasoning' | 'suggestion' | 'error' | 'user_action' | 'info';
+  type: 'extraction' | 'context_update' | 'reasoning' | 'suggestion' | 'error' | 'user_action' | 'info' | 'discovery';
   title: string;
   content: string;
   reasoning?: string;
@@ -79,6 +79,8 @@ function EventIcon({ type }: { type: NarrativeEvent['type'] }) {
       return <AlertCircle className="w-3.5 h-3.5 text-red-500" />;
     case 'user_action':
       return <MessageSquare className="w-3.5 h-3.5 text-gray-500" />;
+    case 'discovery':
+      return <Sparkles className="w-3.5 h-3.5 text-cyan-500" />;
     default:
       return <CheckCircle className="w-3.5 h-3.5 text-gray-400" />;
   }

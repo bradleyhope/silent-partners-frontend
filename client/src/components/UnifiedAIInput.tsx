@@ -38,7 +38,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
   const { network, addEntity, addRelationship, clearNetwork, dispatch } = useNetwork();
   const [input, setInput] = useState(initialQuery || '');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState<{ step: number; total: number; goal: string; startTime: number } | null>(null);
+  const [progress, setProgress] = useState<{ step: number; total: number; goal: string; startTime: number; entitiesFound?: number; relationshipsFound?: number } | null>(null);
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteResults, setAutocompleteResults] = useState<Entity[]>([]);
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
@@ -308,6 +308,8 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
         if (isNew) {
           const converted = convertEntity(entity);
           addEntity(converted);
+          // Update progress with entity count
+          setProgress(prev => prev ? { ...prev, entitiesFound: (prev.entitiesFound || 0) + 1 } : null);
           onNarrativeEvent?.({
             type: 'extraction',
             title: 'Entity Found',
@@ -323,6 +325,14 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
           const converted = convertRelationship(relationship);
           if (converted) {
             addRelationship(converted);
+            // Update progress with relationship count
+            setProgress(prev => prev ? { ...prev, relationshipsFound: (prev.relationshipsFound || 0) + 1 } : null);
+            // Show visual feedback for relationship discovery
+            onNarrativeEvent?.({
+              type: 'discovery',
+              title: 'Connection Found',
+              content: `${relationship.source_name || relationship.source} → ${relationship.label || relationship.type} → ${relationship.target_name || relationship.target}`,
+            });
           } else {
             // Buffer the relationship to try again later when entities arrive
             pendingRelationships.current.push(relationship);
@@ -463,6 +473,12 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
             <span className="text-xs text-primary truncate flex-1">{progress.goal}</span>
             <span className="text-xs text-primary/70 flex-shrink-0">{progress.step}/{progress.total}</span>
           </div>
+          {(progress.entitiesFound || progress.relationshipsFound) && (
+            <div className="flex items-center gap-3 mt-1 text-xs text-primary/60">
+              {progress.entitiesFound ? <span>• {progress.entitiesFound} entities</span> : null}
+              {progress.relationshipsFound ? <span>• {progress.relationshipsFound} connections</span> : null}
+            </div>
+          )}
         </div>
       )}
       
