@@ -1,10 +1,25 @@
 /**
  * Silent Partners - API Client
- * 
+ *
  * Handles all communication with the Silent Partners backend API.
  */
 
-const API_BASE = 'https://silent-partners-ai-api.onrender.com/api';
+// API base URL from environment variable with validation
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE;
+
+if (!API_BASE && import.meta.env.PROD) {
+  console.error('VITE_API_URL environment variable is required in production');
+}
+
+// Fallback for development only
+const getApiBase = () => {
+  if (API_BASE) return API_BASE;
+  if (import.meta.env.DEV) {
+    console.warn('VITE_API_URL not set, using default development URL');
+    return 'https://silent-partners-ai-api.onrender.com/api';
+  }
+  throw new Error('VITE_API_URL environment variable is required');
+};
 
 interface ExtractResponse {
   entities: Array<{
@@ -83,7 +98,7 @@ class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-      const response = await fetch(`${API_BASE}${endpoint}`, {
+      const response = await fetch(`${getApiBase()}${endpoint}`, {
         ...options,
         headers,
         signal: controller.signal,
@@ -227,7 +242,7 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(`${API_BASE}/jobs/upload-pdf`, {
+    const response = await fetch(`${getApiBase()}/jobs/upload-pdf`, {
       method: 'POST',
       headers,
       body: formData,

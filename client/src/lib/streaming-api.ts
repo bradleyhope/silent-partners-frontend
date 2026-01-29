@@ -1,6 +1,6 @@
 /**
  * Silent Partners - Streaming API Client v5.1
- * 
+ *
  * Handles Server-Sent Events (SSE) for real-time graph construction.
  * Uses the new smart extraction endpoints with:
  * - Incremental entity resolution
@@ -10,9 +10,34 @@
  * - Context-aware extraction (uses existing graph entities)
  */
 
-// API URLs - configurable via environment variables
-const API_BASE = import.meta.env.VITE_API_BASE || 'https://silent-partners-ai-api.onrender.com/api';
-const API_V5 = import.meta.env.VITE_API_V5 || 'https://silent-partners-ai-api.onrender.com/api/v5';
+// API URLs - environment variables with validation
+const ENV_API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE;
+const ENV_API_V5 = import.meta.env.VITE_API_V5;
+
+// Validate in production
+if (!ENV_API_BASE && import.meta.env.PROD) {
+  console.error('VITE_API_URL environment variable is required in production');
+}
+
+// Get API base URL with development fallback
+const getApiBase = () => {
+  if (ENV_API_BASE) return ENV_API_BASE;
+  if (import.meta.env.DEV) {
+    console.warn('VITE_API_URL not set, using default development URL');
+    return 'https://silent-partners-ai-api.onrender.com/api';
+  }
+  throw new Error('VITE_API_URL environment variable is required');
+};
+
+// Get API V5 URL with development fallback
+const getApiV5 = () => {
+  if (ENV_API_V5) return ENV_API_V5;
+  if (import.meta.env.DEV) {
+    return 'https://silent-partners-ai-api.onrender.com/api/v5';
+  }
+  // Fall back to base API + /v5 if V5 not explicitly set
+  return `${getApiBase()}/v5`.replace('/api/v5', '/v5');
+};
 
 // Event types from the backend
 export type PipelineEventType = 
@@ -169,7 +194,7 @@ export function streamPipeline(
   const runStream = async () => {
     try {
       // Use v5 smart endpoint with existing entities for context
-      const response = await fetch(`${API_V5}/extract`, {
+      const response = await fetch(`${getApiV5()}/extract`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -257,7 +282,7 @@ export function streamResearch(
   const runStream = async () => {
     try {
       // Use v5 smart research endpoint with existing entities for context
-      const response = await fetch(`${API_V5}/research`, {
+      const response = await fetch(`${getApiV5()}/research`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -346,7 +371,7 @@ export async function extractPipeline(
   error?: string;
   suggestion?: string;
 }> {
-  const response = await fetch(`${API_V5}/extract`, {
+  const response = await fetch(`${getApiV5()}/extract`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -395,7 +420,7 @@ export async function researchConnection(
   relationships: PipelineRelationship[];
   error?: string;
 }> {
-  const response = await fetch(`${API_V5}/research`, {
+  const response = await fetch(`${getApiV5()}/research`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -589,8 +614,17 @@ export default {
 };
 
 
-// Orchestrator API v6.1 - configurable via environment variable
-const API_V6 = import.meta.env.VITE_API_V6 || 'https://silent-partners-ai-api.onrender.com/api/v6';
+// Orchestrator API v6.1 - environment variable with development fallback
+const ENV_API_V6 = import.meta.env.VITE_API_V6;
+
+const getApiV6 = () => {
+  if (ENV_API_V6) return ENV_API_V6;
+  if (import.meta.env.DEV) {
+    return 'https://silent-partners-ai-api.onrender.com/api/v6';
+  }
+  // Fall back to base API + /v6 if V6 not explicitly set
+  return `${getApiBase()}/v6`.replace('/api/v6', '/v6');
+};
 
 // Orchestrator event types
 export type OrchestratorEventType =
@@ -681,7 +715,7 @@ export function streamOrchestrate(
     timeoutId = setTimeout(checkTimeout, 10000);
     
     try {
-      const response = await fetch(`${API_V6}/orchestrate`, {
+      const response = await fetch(`${getApiV6()}/orchestrate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
