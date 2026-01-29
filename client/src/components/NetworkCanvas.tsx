@@ -189,8 +189,13 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     svg.call(zoom);
     zoomRef.current = zoom;
 
-    // Click to deselect
-    svg.on('click', () => {
+    // Click to deselect (only if clicking on background, not on nodes)
+    svg.on('click', (event) => {
+      // Check if click target is a node or part of a node group
+      const target = event.target as Element;
+      if (target.closest('.node') || target.closest('.link')) {
+        return; // Don't deselect if clicking on a node or link
+      }
       selectEntity(null);
       setCardPosition(null);
       setSelectedRelationship(null);
