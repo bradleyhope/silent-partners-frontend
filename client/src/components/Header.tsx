@@ -109,6 +109,11 @@ export default function Header() {
                       <span className="text-xs font-medium hidden sm:inline">
                         {getDisplayName()}
                       </span>
+                      {(user?.ai_credits_remaining !== undefined || user?.credits !== undefined) && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hidden sm:inline">
+                          {user.ai_credits_remaining ?? user.credits} credits
+                        </span>
+                      )}
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
@@ -129,10 +134,10 @@ export default function Header() {
                       <FolderOpen className="mr-2 h-4 w-4" />
                       <span>My Networks</span>
                     </DropdownMenuItem>
-                    {user?.credits !== undefined && (
+                    {(user?.ai_credits_remaining !== undefined || user?.credits !== undefined) && (
                       <DropdownMenuItem disabled>
                         <CreditCard className="mr-2 h-4 w-4" />
-                        <span>AI Credits: {user.credits}</span>
+                        <span>AI Credits: {user.ai_credits_remaining ?? user.credits}</span>
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />

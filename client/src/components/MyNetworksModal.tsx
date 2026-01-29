@@ -30,6 +30,7 @@ export default function MyNetworksModal({ open, onOpenChange }: MyNetworksModalP
   const [networks, setNetworks] = useState<SavedNetwork[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   // Fetch networks when modal opens
   useEffect(() => {
@@ -103,6 +104,22 @@ export default function MyNetworksModal({ open, onOpenChange }: MyNetworksModalP
     }
   };
 
+  const handleDeleteNetwork = async (id: number, title: string) => {
+    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    
+    setDeletingId(id);
+    try {
+      await api.deleteGraph(id);
+      setNetworks(networks.filter(n => n.id !== id));
+      toast.success(`Deleted "${title}"`);
+    } catch (error) {
+      console.error('Failed to delete network:', error);
+      toast.error('Failed to delete network');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     try {
       return new Date(dateStr).toLocaleDateString('en-US', {
@@ -155,17 +172,32 @@ export default function MyNetworksModal({ open, onOpenChange }: MyNetworksModalP
                         {formatDate(network.created_at)}
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleLoadNetwork(network.id)}
-                      disabled={loadingId === network.id}
-                    >
-                      {loadingId === network.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        'Load'
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteNetwork(network.id, network.title)}
+                        disabled={deletingId === network.id}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        {deletingId === network.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleLoadNetwork(network.id)}
+                        disabled={loadingId === network.id}
+                      >
+                        {loadingId === network.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          'Load'
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}

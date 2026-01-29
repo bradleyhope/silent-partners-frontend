@@ -283,6 +283,13 @@ class ApiClient {
     return this.request(`/graphs/${id}`);
   }
 
+  // Delete a graph
+  async deleteGraph(id: number): Promise<{ success: boolean }> {
+    return this.request(`/graphs/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   // Share a graph (generate shareable link)
   async shareGraph(id: number): Promise<{ share_url: string; share_id: string }> {
     return this.request(`/graphs/${id}/share`, {
