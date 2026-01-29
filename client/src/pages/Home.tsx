@@ -16,6 +16,7 @@ import { MobileSidebarProvider } from '@/contexts/MobileSidebarContext';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import NetworkCanvas from '@/components/NetworkCanvas';
+import CanvasErrorBoundary from '@/components/CanvasErrorBoundary';
 import DetailPanel from '@/components/DetailPanel';
 import NarrativePanel, { NarrativeEvent, InvestigationContext, Suggestion, ResearchHistoryItem } from '@/components/NarrativePanel';
 import { UndoHistoryPanel } from '@/components/UndoHistoryPanel';
@@ -226,7 +227,9 @@ function AppContentInner() {
           setIsProcessing={setIsProcessing}
         />
         <div className="flex-1 relative flex flex-col min-w-0">
-          <NetworkCanvas onNarrativeEvent={addToNarrative} />
+          <CanvasErrorBoundary>
+            <NetworkCanvas onNarrativeEvent={addToNarrative} />
+          </CanvasErrorBoundary>
           <UndoHistoryPanel />
           
           {/* Narrative Panel Toggle - positioned below History button */}
