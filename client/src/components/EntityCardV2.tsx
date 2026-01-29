@@ -11,15 +11,17 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { Entity, generateId } from '@/lib/store';
+import { Entity, generateId, sourceTypeConfig } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
-import { 
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
   X, Trash2, Sparkles, Link, Loader2, Plus, ChevronDown, ChevronUp,
-  FileText, AlertCircle, CheckCircle, HelpCircle, Edit2, Save, Pencil
+  FileText, AlertCircle, CheckCircle, HelpCircle, Edit2, Save, Pencil,
+  Globe, Clock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
@@ -61,6 +63,31 @@ const TYPE_ICONS: Record<string, string> = {
   event: '📅',
   unknown: '❓',
 };
+
+// Source Type Badge Component
+function SourceTypeBadge({ sourceType }: { sourceType?: Entity['source_type'] }) {
+  if (!sourceType) return null;
+
+  const config = sourceTypeConfig[sourceType];
+  if (!config) return null;
+
+  const IconComponent = {
+    FileText: FileText,
+    Globe: Globe,
+    Pencil: Pencil,
+    Sparkles: Sparkles,
+  }[config.icon];
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+      style={{ backgroundColor: `${config.color}20`, color: config.color }}
+    >
+      {IconComponent && <IconComponent className="w-3 h-3" />}
+      {config.label}
+    </span>
+  );
+}
 
 // Knowledge gaps based on entity type
 const KNOWLEDGE_GAP_TEMPLATES: Record<string, string[]> = {
@@ -625,13 +652,15 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
       <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/30 rounded-t-lg shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-lg">{TYPE_ICONS[type] || TYPE_ICONS.unknown}</span>
-          <span 
-            className="w-2 h-2 rounded-full" 
+          <span
+            className="w-2 h-2 rounded-full"
             style={{ backgroundColor: TYPE_COLORS[type] || TYPE_COLORS.unknown }}
           />
           <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {type}
           </span>
+          {/* Source Type Badge */}
+          <SourceTypeBadge sourceType={entity.source_type} />
         </div>
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
           <X className="w-3.5 h-3.5" />
@@ -688,24 +717,64 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
                 </Button>
               </div>
               
-              {/* Source Citation - Show where this entity came from */}
-              {(entity.source_query || entity.source_text) && (
-                <div className="mt-1.5 p-2 bg-blue-500/10 border border-blue-500/20 rounded text-xs">
-                  <div className="flex items-center gap-1 text-blue-400 font-medium mb-1">
-                    <FileText className="w-3 h-3" />
-                    Source
-                  </div>
-                  {entity.source_query && (
-                    <div className="text-muted-foreground">
-                      <span className="text-blue-300">Query:</span> {entity.source_query}
+              {/* Source Citation - Collapsible section showing provenance */}
+              {(entity.source_query || entity.source_text || entity.source_type || entity.created_at) && (
+                <Collapsible className="mt-1.5">
+                  <CollapsibleTrigger className="flex items-center justify-between w-full p-2 bg-blue-500/10 border border-blue-500/20 rounded text-xs hover:bg-blue-500/15 transition-colors">
+                    <div className="flex items-center gap-1 text-blue-400 font-medium">
+                      <FileText className="w-3 h-3" />
+                      Sources
                     </div>
-                  )}
-                  {entity.source_text && (
-                    <div className="text-muted-foreground mt-1 italic text-[10px] line-clamp-3">
-                      "{entity.source_text.slice(0, 200)}{entity.source_text.length > 200 ? '...' : ''}"
-                    </div>
-                  )}
-                </div>
+                    <ChevronDown className="w-3 h-3 text-blue-400" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-2 pb-2 border-x border-b border-blue-500/20 rounded-b text-xs space-y-2 bg-blue-500/5">
+                    {/* Source Type */}
+                    {entity.source_type && (
+                      <div className="flex items-center gap-2 pt-2">
+                        <span className="text-muted-foreground">Added via:</span>
+                        <SourceTypeBadge sourceType={entity.source_type} />
+                      </div>
+                    )}
+
+                    {/* Created At */}
+                    {entity.created_at && (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Clock className="w-3 h-3" />
+                        {new Date(entity.created_at).toLocaleDateString(undefined, {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </div>
+                    )}
+
+                    {/* Source Query */}
+                    {entity.source_query && (
+                      <div>
+                        <span className="text-blue-300 font-medium">Query:</span>
+                        <p className="text-muted-foreground mt-0.5">{entity.source_query}</p>
+                      </div>
+                    )}
+
+                    {/* Source Text */}
+                    {entity.source_text && (
+                      <div>
+                        <span className="text-blue-300 font-medium">Extracted from:</span>
+                        <blockquote className="text-muted-foreground mt-0.5 italic text-[10px] border-l-2 border-blue-500/30 pl-2">
+                          "{entity.source_text.slice(0, 300)}
+                          {entity.source_text.length > 300 ? '...' : ''}"
+                        </blockquote>
+                      </div>
+                    )}
+
+                    {/* No source recorded */}
+                    {!entity.source_query && !entity.source_text && !entity.source_type && (
+                      <p className="text-muted-foreground italic pt-2">No source recorded</p>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
               )}
             </div>
           )}

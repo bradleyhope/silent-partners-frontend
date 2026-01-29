@@ -153,6 +153,8 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       type: (pipelineEntity.type as Entity['type']) || 'unknown',
       description: pipelineEntity.description,
       importance: pipelineEntity.importance || 5,
+      source_type: 'web', // Entities from streaming orchestrator come from web research
+      created_at: new Date().toISOString(),
     };
 
     // Track in session entities for relationship resolution

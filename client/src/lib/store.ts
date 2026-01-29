@@ -18,6 +18,8 @@ export interface Entity {
   // Source tracking for citations
   source_text?: string;  // The text snippet this entity was extracted from
   source_query?: string; // The search query that found this entity
+  source_type?: 'document' | 'web' | 'manual' | 'enrichment'; // How this entity was added
+  created_at?: string;   // When this entity was added
 }
 
 export interface Relationship {
@@ -96,4 +98,15 @@ export const relationshipStyles: Record<string, { strokeDasharray: string; opaci
   confirmed: { strokeDasharray: 'none', opacity: 0.8 },
   suspected: { strokeDasharray: '5,5', opacity: 0.6 },
   former: { strokeDasharray: '2,4', opacity: 0.4 },
+};
+
+// Source type configuration for visual badges
+export const sourceTypeConfig: Record<
+  NonNullable<Entity['source_type']>,
+  { label: string; color: string; icon: 'FileText' | 'Globe' | 'Pencil' | 'Sparkles' }
+> = {
+  document: { label: 'Document', color: '#3B82F6', icon: 'FileText' },
+  web: { label: 'Web Research', color: '#10B981', icon: 'Globe' },
+  manual: { label: 'Manual Entry', color: '#6B7280', icon: 'Pencil' },
+  enrichment: { label: 'Enrichment', color: '#8B5CF6', icon: 'Sparkles' },
 };
