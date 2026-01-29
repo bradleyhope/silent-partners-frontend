@@ -383,6 +383,17 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
   
   return (
     <div className="relative space-y-2">
+      {/* Progress indicator - floating at top, doesn't push content */}
+      {progress && (
+        <div className="bg-primary/10 rounded-lg px-3 py-1.5 border border-primary/20">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-3 h-3 animate-spin text-primary flex-shrink-0" />
+            <span className="text-xs text-primary truncate flex-1">{progress.goal}</span>
+            <span className="text-xs text-primary/70 flex-shrink-0">{progress.step}/{progress.total}</span>
+          </div>
+        </div>
+      )}
+      
       {/* Main input */}
       <div className="relative">
         <textarea
@@ -390,7 +401,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
           value={input}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          className="w-full min-h-[100px] p-3 pr-10 text-sm bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="w-full min-h-[80px] p-3 pr-10 text-sm bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
           placeholder="Ask anything... Type / to reference entities from your graph"
           disabled={isProcessing}
         />
@@ -419,27 +430,6 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
           </div>
         )}
       </div>
-      
-      {/* Progress indicator - compact design */}
-      {progress && (
-        <div className="bg-muted/50 rounded-lg p-2 border border-border">
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-3 h-3 animate-spin text-primary flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                <span className="truncate">{progress.goal}</span>
-                <span className="flex-shrink-0 ml-2">{progress.step}/{progress.total}</span>
-              </div>
-              <div className="h-1 bg-muted rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-primary transition-all duration-300 ease-out"
-                  style={{ width: `${(progress.step / progress.total) * 100}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* Submit button */}
       <Button
