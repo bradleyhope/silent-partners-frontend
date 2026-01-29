@@ -36,7 +36,8 @@ const getApiV5 = () => {
     return 'https://silent-partners-ai-api.onrender.com/api/v5';
   }
   // Fall back to base API + /v5 if V5 not explicitly set
-  return `${getApiBase()}/v5`.replace('/api/v5', '/v5');
+  // Note: getApiBase() should return URL ending with /api
+  return `${getApiBase()}/v5`;
 };
 
 // Event types from the backend
