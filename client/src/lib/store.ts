@@ -8,7 +8,7 @@
 export interface Entity {
   id: string;
   name: string;
-  type: 'person' | 'corporation' | 'organization' | 'financial' | 'government' | 'event' | 'unknown';
+  type: 'person' | 'corporation' | 'organization' | 'financial' | 'government' | 'event' | 'location' | 'asset' | 'unknown';
   description?: string;
   importance?: number;
   x?: number;
@@ -86,6 +86,8 @@ export const entityColors: Record<Entity['type'], string> = {
   financial: '#C9A227',
   government: '#8B7355',
   event: '#9B6B9E',
+  location: '#5C9EAD',
+  asset: '#D4A574',
   unknown: '#78909C',
 };
 
