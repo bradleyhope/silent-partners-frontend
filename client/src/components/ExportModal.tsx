@@ -395,7 +395,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.textAlign = 'left';
       
       // Get unique entity types in the network
-      const entityTypes = [...new Set(optimizedNodes.map(n => n.type))];
+      const entityTypes = Array.from(new Set(optimizedNodes.map(n => n.type)));
       const typeLabels: Record<string, string> = {
         person: 'Person',
         corporation: 'Corporation',

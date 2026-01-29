@@ -189,7 +189,7 @@ function networkReducer(state: NetworkState, action: NetworkAction): NetworkStat
 
 interface NetworkContextValue extends NetworkState {
   dispatch: React.Dispatch<NetworkAction>;
-  addEntity: (entity: Omit<Entity, 'id'>) => void;
+  addEntity: (entity: Omit<Entity, 'id'> & { id?: string }) => void;
   updateEntity: (id: string, updates: Partial<Entity>) => void;
   deleteEntity: (id: string) => void;
   addRelationship: (relationship: Omit<Relationship, 'id'>) => void;

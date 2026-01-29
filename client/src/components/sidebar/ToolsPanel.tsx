@@ -299,8 +299,8 @@ export default function ToolsPanel({ isOpen, onOpenChange }: ToolsPanelProps) {
       // Map API IDs to our IDs
       const apiIdToOurId = new Map<string, string>();
 
-      const entities: Entity[] = result.entities
-        .map((e) => {
+      const entities = result.entities
+        .map((e): Entity | null => {
           const existingEntity = network.entities.find(
             (existing) => existing.name.toLowerCase() === e.name.toLowerCase()
           );
@@ -313,13 +313,16 @@ export default function ToolsPanel({ isOpen, onOpenChange }: ToolsPanelProps) {
           const ourId = generateId();
           apiIdToOurId.set(e.id, ourId);
 
-          return {
+          const entity: Entity = {
             id: ourId,
             name: e.name,
             type: (e.type?.toLowerCase() || 'person') as Entity['type'],
-            description: e.description,
             importance: e.importance || 5,
           };
+          if (e.description) {
+            entity.description = e.description;
+          }
+          return entity;
         })
         .filter((e): e is Entity => e !== null);
 

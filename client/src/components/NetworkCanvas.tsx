@@ -312,8 +312,8 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     // Update or create simulation
     if (!simulationRef.current) {
       simulationRef.current = d3.forceSimulation<SimulationNode>(nodes)
-        .force('link', d3.forceLink<SimulationLink, SimulationNode>(links)
-          .id(d => d.id)
+        .force('link', d3.forceLink<SimulationNode, SimulationLink>(links)
+          .id((d: SimulationNode) => d.id)
           .distance(180)
           .strength(0.15))
         .force('charge', d3.forceManyBody().strength(-400))
@@ -480,11 +480,11 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       .data(nodes, d => d.id);
 
     // Remove old nodes with animation
-    nodeSelection.exit()
+    nodeSelection.exit<SimulationNode>()
       .transition()
       .duration(300)
       .attr('opacity', 0)
-      .attr('transform', d => `translate(${d.x},${d.y}) scale(0)`)
+      .attr('transform', (d: SimulationNode) => `translate(${d.x},${d.y}) scale(0)`)
       .remove();
 
     // Add new nodes with animation
@@ -505,7 +505,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       .attr('stroke-width', d => getNodeStrokeWidth(d, d.id === selectedEntityId));
 
     // Add pulse ring for new nodes
-    nodeEnter.filter(d => d.isNew)
+    nodeEnter.filter(d => d.isNew === true)
       .append('circle')
       .attr('class', 'pulse-ring')
       .attr('r', d => getNodeRadius(d))

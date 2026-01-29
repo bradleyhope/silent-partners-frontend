@@ -235,7 +235,7 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       focus: investigationContext?.focus || '',
       key_questions: investigationContext?.key_questions || [],
       entities: network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
-      relationships: network.relationships.map(r => ({ source: r.source, target: r.target, type: r.type })),
+      relationships: network.relationships.map(r => ({ source: r.source, target: r.target, type: r.type || 'related' })),
       graph_id: graphId,  // NEW: For research memory
     };
     

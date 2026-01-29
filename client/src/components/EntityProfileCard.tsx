@@ -99,8 +99,8 @@ export default function EntityProfileCard({
       return {
         relationship: r,
         otherEntity,
-        direction: r.source === entity.id ? 'outgoing' : 'incoming',
-        evidence: r.description || r.label
+        direction: (r.source === entity.id ? 'outgoing' : 'incoming') as 'outgoing' | 'incoming',
+        evidence: r.label
       };
     })
     .sort((a, b) => {

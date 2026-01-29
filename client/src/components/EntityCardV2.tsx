@@ -522,38 +522,40 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
             }));
             
             const relationshipsToResolve = result.enriched.connections_suggested.map((suggestion: { name: string; relationship: string }) => ({
-              source_name: entity.name,
-              target_name: suggestion.name,
+              source: entity.name,
+              target: suggestion.name,
               type: suggestion.relationship
             }));
             
             // Get graph ID from network context (if available) or use 0 for in-memory
-            const graphId = network.id || 0;
-            
+            const graphId = typeof network.id === 'string' ? parseInt(network.id, 10) : (network.id || 0);
+
             if (graphId > 0) {
               // Use backend resolution for saved graphs
               const resolution = await api.resolveEntities(graphId, entitiesToResolve, relationshipsToResolve);
-              
-              // Add resolved entities and relationships
-              const newEntities: Entity[] = resolution.entities_added.map((e: { id: string; name: string; type: string }) => ({
-                id: e.id || generateId(),
-                name: e.name,
-                type: e.type || 'person',
-                description: `Suggested connection to ${entity.name}`,
-                importance: 5,
-              }));
-              
-              const newRelationships = resolution.relationships_added.map((r: { source: string; target: string; type: string }) => ({
+
+              // Add resolved entities and relationships from the resolved object
+              const newEntities: Entity[] = resolution.resolved.entities
+                .filter(e => e.is_new)
+                .map((e) => ({
+                  id: e.id || generateId(),
+                  name: e.name,
+                  type: (e.type || 'person') as Entity['type'],
+                  description: `Suggested connection to ${entity.name}`,
+                  importance: 5,
+                }));
+
+              const newRelationships = resolution.resolved.relationships.map((r) => ({
                 id: generateId(),
                 source: r.source,
                 target: r.target,
                 type: r.type,
                 label: r.type,
               }));
-              
+
               if (newEntities.length > 0 || newRelationships.length > 0) {
                 addEntitiesAndRelationships(newEntities, newRelationships);
-                const mergedCount = resolution.entities_merged?.length || 0;
+                const mergedCount = resolution.resolved.stats.entities_merged || 0;
                 const message = mergedCount > 0 
                   ? `✨ Enriched ${entity.name}: Added ${newEntities.length} entities, ${newRelationships.length} connections (merged ${mergedCount} duplicates)`
                   : `✨ Enriched ${entity.name}: Added ${newEntities.length} entities and ${newRelationships.length} connections`;

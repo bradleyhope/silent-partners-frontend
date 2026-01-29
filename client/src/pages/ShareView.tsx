@@ -70,7 +70,7 @@ export default function ShareView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-  const { themeConfig } = useCanvasTheme();
+  const { config: themeConfig } = useCanvasTheme();
   
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
@@ -483,8 +483,8 @@ export default function ShareView() {
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/30 rounded-t-lg">
             <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full" style={{ 
-                backgroundColor: themeConfig.entityColors[selectedEntity.type] || themeConfig.nodeColor 
+              <span className="w-3 h-3 rounded-full" style={{
+                backgroundColor: themeConfig.entityColors[selectedEntity.type] || themeConfig.nodeStroke
               }} />
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {selectedEntity.type}

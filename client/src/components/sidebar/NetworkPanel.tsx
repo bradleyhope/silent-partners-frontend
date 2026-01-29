@@ -265,7 +265,7 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
         };
         const jsonString = JSON.stringify(networkData);
         const compressed = pako.deflate(jsonString);
-        const base64Data = btoa(String.fromCharCode(...compressed));
+        const base64Data = btoa(String.fromCharCode.apply(null, Array.from(compressed) as number[]));
         const shareUrl = `${window.location.origin}/share?data=${encodeURIComponent(base64Data)}`;
 
         if (shareUrl.length > 2000) {
