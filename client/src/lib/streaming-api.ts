@@ -624,7 +624,8 @@ const getApiV6 = () => {
     return 'https://silent-partners-ai-api.onrender.com/api/v6';
   }
   // Fall back to base API + /v6 if V6 not explicitly set
-  return `${getApiBase()}/v6`.replace('/api/v6', '/v6');
+  // Note: getApiBase() should return URL ending with /api
+  return `${getApiBase()}/v6`;
 };
 
 // Orchestrator event types
