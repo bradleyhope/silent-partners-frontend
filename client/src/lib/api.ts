@@ -417,7 +417,99 @@ class ApiClient {
       }),
     });
   }
-}
 
+  // Resolve entities and relationships through intelligent deduplication
+  async resolveEntities(
+    graphId: number,
+    entities: Array<{ name: string; type: string; description?: string }>,
+    relationships: Array<{ source: string; target: string; type: string }>,
+    context?: string,
+    autoAdd: boolean = true
+  ): Promise<{
+    success: boolean;
+    resolved: {
+      entities: Array<{
+        id: string;
+        name: string;
+        type: string;
+        is_new: boolean;
+        merged_with?: string;
+        aliases?: string[];
+        confidence: number;
+        resolution_method: string;
+      }>;
+      relationships: Array<{
+        source: string;
+        target: string;
+        type: string;
+        original_type?: string;
+      }>;
+      stats: {
+        entities_added: number;
+        entities_merged: number;
+        entities_rejected: number;
+        relationships_added: number;
+      };
+      rejected_entities?: Array<{ name: string; reason: string }>;
+    };
+  }> {
+    return this.request(`/graph/${graphId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        entities,
+        relationships,
+        context,
+        auto_add: autoAdd
+      }),
+    });
+  }
+
+  // Normalize all relationship types in a graph
+  async normalizeRelationships(
+    graphId: number,
+    dryRun: boolean = true
+  ): Promise<{
+    success: boolean;
+    result: {
+      type_changes: number;
+      duplicates_found: number;
+      changes: Array<{ relationship_id: string; original_type: string; canonical_type: string }>;
+      duplicates: Array<{ relationship_id: string; source: string; target: string; type: string }>;
+      applied?: boolean;
+      dry_run?: boolean;
+    };
+  }> {
+    return this.request(`/graph/${graphId}/normalize-relationships`, {
+      method: 'POST',
+      body: JSON.stringify({ dry_run: dryRun }),
+    });
+  }
+
+  // Find and merge duplicate entities in a graph
+  async deduplicateEntities(
+    graphId: number,
+    dryRun: boolean = true,
+    threshold: number = 0.85
+  ): Promise<{
+    success: boolean;
+    result: {
+      duplicates_found: number;
+      potential_merges: Array<{
+        entity1: { id: string; name: string };
+        entity2: { id: string; name: string };
+        match_type: string;
+        confidence: number;
+      }>;
+      merged_count?: number;
+      applied?: boolean;
+      dry_run?: boolean;
+    };
+  }> {
+    return this.request(`/graph/${graphId}/deduplicate-entities`, {
+      method: 'POST',
+      body: JSON.stringify({ dry_run: dryRun, threshold }),
+    });
+  }
+}
 export const api = new ApiClient();
 export default api;
