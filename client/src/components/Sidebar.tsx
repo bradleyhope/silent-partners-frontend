@@ -15,7 +15,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText, Search, X, Trash2, Sparkles, Wand2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { ChevronDown, Loader2, Download, Share2, Save, Plus, Link, Upload, FileText, Search, X, Trash2, Sparkles, Wand2, AlertTriangle, RefreshCw, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { DocumentTooLargeError } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -32,39 +32,42 @@ import UnifiedAIInput from './UnifiedAIInput';
 // Investigation templates organized by use case
 const INVESTIGATION_TEMPLATES = [
   // Corporate Investigations
-  { id: 'corporate-structure', name: '🏢 Corporate Structure', category: 'corporate', 
+  { id: 'corporate-structure', name: 'Corporate Structure', category: 'corporate', 
     query: 'Map the ownership structure, subsidiaries, and key executives of [Company Name]',
     description: 'Trace corporate hierarchies and beneficial ownership' },
-  { id: 'due-diligence', name: '🔍 Due Diligence', category: 'corporate',
+  { id: 'due-diligence', name: 'Due Diligence', category: 'corporate',
     query: 'Research [Person/Company] background, business history, legal issues, and key relationships',
     description: 'Background check for business partnerships' },
   
   // Financial Investigations  
-  { id: 'money-trail', name: '💰 Money Trail', category: 'financial',
+  { id: 'money-trail', name: 'Money Trail', category: 'financial',
     query: 'Trace the flow of funds and financial relationships involving [Entity]',
     description: 'Follow financial connections and transactions' },
-  { id: 'shell-companies', name: '🏭 Shell Company Network', category: 'financial',
+  { id: 'shell-companies', name: 'Shell Company Network', category: 'financial',
     query: 'Map shell companies, offshore entities, and nominee directors connected to [Entity]',
     description: 'Uncover hidden corporate structures' },
     
   // People Networks
-  { id: 'influence-network', name: '👥 Influence Network', category: 'people',
+  { id: 'influence-network', name: 'Influence Network', category: 'people',
     query: 'Map the professional network, board memberships, and political connections of [Person]',
     description: 'Understand who influences whom' },
-  { id: 'family-business', name: '👨‍👩‍👧‍👦 Family Business', category: 'people',
+  { id: 'family-business', name: 'Family Business', category: 'people',
     query: 'Map family members and their business interests for [Family Name]',
     description: 'Family business empires and dynasties' },
     
-  // Historical Examples
-  { id: '1mdb', name: '🇲🇾 1MDB Scandal', category: 'examples',
+  // Historical Examples (pre-built networks)
+  { id: '1mdb', name: '1MDB Scandal', category: 'examples',
     query: 'Map the key players and financial connections in the 1MDB scandal involving Jho Low and Malaysian government officials',
-    description: 'Multi-billion dollar embezzlement case' },
-  { id: 'bcci', name: '🏦 BCCI', category: 'examples',
+    description: 'Multi-billion dollar embezzlement case',
+    prebuilt: true },
+  { id: 'bcci', name: 'BCCI', category: 'examples',
     query: 'Map the Bank of Credit and Commerce International scandal network including key figures and shell companies',
-    description: 'Historic banking fraud network' },
-  { id: 'epstein', name: '🕸️ Epstein Network', category: 'examples',
+    description: 'Historic banking fraud network',
+    prebuilt: true },
+  { id: 'epstein', name: 'Epstein Network', category: 'examples',
     query: 'Map Jeffrey Epstein network of associates, connections to financial institutions and powerful individuals',
-    description: 'Power and influence network' },
+    description: 'Power and influence network',
+    prebuilt: true },
 ];
 
 // Keep old reference for backward compatibility
@@ -78,7 +81,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentProcessing }: SidebarProps = {}) {
-  const { network, dispatch, addEntitiesAndRelationships, clearNetwork, selectEntity } = useNetwork();
+  const { network, dispatch, addEntitiesAndRelationships, clearNetwork, selectEntity, setNetwork } = useNetwork();
   const { isAuthenticated } = useAuth();
   const { theme, setTheme, showAllLabels, setShowAllLabels } = useCanvasTheme();
   const { isOpen: mobileOpen, close: closeMobile } = useMobileSidebar();
@@ -294,8 +297,14 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
         label: e.label || e.type,
       }));
       
-      dispatch({ type: 'UPDATE_NETWORK', payload: { title: networkData.title, description: networkData.description } });
-      addEntitiesAndRelationships(entities, relationships);
+      // Use setNetwork for instant loading (no animation) of pre-built networks
+      setNetwork({
+        ...network,
+        title: networkData.title,
+        description: networkData.description,
+        entities,
+        relationships,
+      });
       
       toast.success(`Loaded ${example.name} (${entities.length} entities, ${relationships.length} connections)`);
     } catch (error) {
@@ -304,7 +313,7 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
     } finally {
       setIsProcessing(false);
     }
-  }, [clearNetwork, dispatch, addEntitiesAndRelationships]);
+  }, [clearNetwork, dispatch, addEntitiesAndRelationships, setNetwork, network]);
 
   // Export format state
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -362,7 +371,7 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
     setShowExportMenu(false);
   }, [network]);
 
-  // Export network as PNG
+  // Export network as PNG - captures full network at high resolution
   const handleExportPng = useCallback(() => {
     const container = document.querySelector('#network-canvas');
     const svg = container?.querySelector('svg');
@@ -370,6 +379,8 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
       toast.error('No network to export');
       return;
     }
+    
+    toast.info('Preparing high-resolution export...');
     
     // Clone and prepare SVG
     const svgClone = svg.cloneNode(true) as SVGSVGElement;
@@ -379,10 +390,73 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
     // Get background color from container
     const bgColor = window.getComputedStyle(container).backgroundColor || '#F5F0E6';
     
+    // Find the content group (g.canvas-content) and get its transform
+    const contentGroup = svgClone.querySelector('g.canvas-content');
+    
+    // Calculate the bounding box of all nodes to determine full network extent
+    const nodes = svgClone.querySelectorAll('g.node');
+    if (nodes.length === 0) {
+      toast.error('No entities to export');
+      return;
+    }
+    
+    // Parse node positions from transform attributes
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(node => {
+      const transform = node.getAttribute('transform');
+      if (transform) {
+        const match = transform.match(/translate\(([\d.-]+),\s*([\d.-]+)\)/);
+        if (match) {
+          const x = parseFloat(match[1]);
+          const y = parseFloat(match[2]);
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    });
+    
+    // Add padding around the network
+    const padding = 150;
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+    
+    // Calculate the network dimensions
+    const networkWidth = maxX - minX;
+    const networkHeight = maxY - minY;
+    
+    // Set a high-resolution output size while maintaining aspect ratio
+    const targetSize = 4000; // 4K resolution
+    const aspectRatio = networkWidth / networkHeight;
+    let outputWidth: number, outputHeight: number;
+    
+    if (aspectRatio > 1) {
+      outputWidth = targetSize;
+      outputHeight = targetSize / aspectRatio;
+    } else {
+      outputHeight = targetSize;
+      outputWidth = targetSize * aspectRatio;
+    }
+    
+    // Update SVG dimensions and viewBox to show full network
+    svgClone.setAttribute('width', String(outputWidth));
+    svgClone.setAttribute('height', String(outputHeight));
+    svgClone.setAttribute('viewBox', `${minX} ${minY} ${networkWidth} ${networkHeight}`);
+    
+    // Remove any transform on the content group (we're using viewBox now)
+    if (contentGroup) {
+      contentGroup.removeAttribute('transform');
+    }
+    
     // Add background rect as first child
     const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bgRect.setAttribute('width', '100%');
-    bgRect.setAttribute('height', '100%');
+    bgRect.setAttribute('x', String(minX));
+    bgRect.setAttribute('y', String(minY));
+    bgRect.setAttribute('width', String(networkWidth));
+    bgRect.setAttribute('height', String(networkHeight));
     bgRect.setAttribute('fill', bgColor);
     svgClone.insertBefore(bgRect, svgClone.firstChild);
     
@@ -394,17 +468,15 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const scale = 2; // Higher resolution
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
       
       const ctx = canvas.getContext('2d');
       if (ctx) {
         // Fill background first
         ctx.fillStyle = bgColor;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.scale(scale, scale);
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(img, 0, 0, outputWidth, outputHeight);
         
         canvas.toBlob((blob) => {
           if (blob) {
@@ -414,7 +486,7 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
             a.download = `${network.title.toLowerCase().replace(/\s+/g, '-')}.png`;
             a.click();
             URL.revokeObjectURL(pngUrl);
-            toast.success('Network exported as PNG');
+            toast.success(`Exported ${Math.round(outputWidth)}x${Math.round(outputHeight)} PNG`);
           }
         }, 'image/png');
       }
@@ -1166,6 +1238,20 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
           </div>
 
           <div className="flex gap-2 pt-1">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-7 text-xs px-2" 
+              onClick={() => {
+                if (network.entities.length > 0 && !confirm('Clear all entities and start fresh?')) return;
+                clearNetwork();
+                dispatch({ type: 'UPDATE_NETWORK', payload: { title: 'Untitled Network', description: '' } });
+                toast.success('Canvas cleared');
+              }}
+              title="Start fresh"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </Button>
             <Button 
               variant="outline" 
               size="sm" 
