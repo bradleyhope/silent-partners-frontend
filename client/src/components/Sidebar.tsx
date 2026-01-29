@@ -5,7 +5,8 @@
  * Design: Archival Investigator with gold accents
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -99,7 +100,18 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
   const [viewOpen, setViewOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Entity[]>([]);
+  // Debounce search query for better performance with large entity lists
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 150);
+  // Compute search results from debounced query using useMemo
+  const searchResults = useMemo(() => {
+    if (!debouncedSearchQuery.trim()) return [];
+    const lowerQuery = debouncedSearchQuery.toLowerCase();
+    return network.entities.filter(e =>
+      e.name.toLowerCase().includes(lowerQuery) ||
+      e.type.toLowerCase().includes(lowerQuery) ||
+      (e.description && e.description.toLowerCase().includes(lowerQuery))
+    );
+  }, [debouncedSearchQuery, network.entities]);
   
   // AI input state
   const [aiInput, setAiInput] = useState('');
@@ -713,21 +725,10 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
     }
   }, [network, isAuthenticated]);
 
-  // Handle search
+  // Handle search - just update the query, filtering is done via useMemo with debouncing
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-    const lowerQuery = query.toLowerCase();
-    const results = network.entities.filter(e => 
-      e.name.toLowerCase().includes(lowerQuery) ||
-      e.type.toLowerCase().includes(lowerQuery) ||
-      (e.description && e.description.toLowerCase().includes(lowerQuery))
-    );
-    setSearchResults(results);
-  }, [network.entities]);
+  }, []);
 
   // Handle PDF upload - client-side extraction then AI analysis
   const MAX_PAGES = 20; // Maximum pages allowed
@@ -1730,7 +1731,7 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
             />
             {searchQuery && (
               <button
-                onClick={() => { setSearchQuery(''); setSearchResults([]); }}
+                onClick={() => setSearchQuery('')}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
                 <X className="w-3 h-3" />
