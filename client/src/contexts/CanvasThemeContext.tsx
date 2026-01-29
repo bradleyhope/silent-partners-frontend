@@ -90,7 +90,7 @@ interface CanvasThemeContextType {
 const CanvasThemeContext = createContext<CanvasThemeContextType | null>(null);
 
 export function CanvasThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<CanvasTheme>('default');
+  const [theme, setTheme] = useState<CanvasTheme>('lombardi');  // Default to Lombardi aesthetic
   const [showAllLabels, setShowAllLabels] = useState(false);
 
   return (

@@ -116,7 +116,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const perpY = dx / (dist || 1);
     
     const curveDirection = source.id < target.id ? 1 : -1;
-    const curveOffset = dist * 0.12 * curveDirection;
+    const curveOffset = dist * 0.15 * curveDirection;  // Lombardi-style curve intensity
     
     const cpX = midX + perpX * curveOffset;
     const cpY = midY + perpY * curveOffset;
