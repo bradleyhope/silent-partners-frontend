@@ -128,6 +128,11 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
   
   // Save state
   const [isSaving, setIsSaving] = useState(false);
+  const [savedGraphId, setSavedGraphId] = useState<number | null>(null);
+  
+  // Deduplication and normalization state
+  const [isDeduplicating, setIsDeduplicating] = useState(false);
+  const [isNormalizing, setIsNormalizing] = useState(false);
   
   // Tools section state
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -516,7 +521,7 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
     try {
       if (isAuthenticated) {
         // Save to cloud
-        await api.saveGraph({
+        const { id } = await api.saveGraph({
           name: network.title,
           description: network.description,
           entities: network.entities.map(e => ({
@@ -532,6 +537,7 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
             label: r.label,
           })),
         });
+        setSavedGraphId(id);
         toast.success('Network saved to cloud!');
       } else {
         // Save to localStorage
@@ -560,6 +566,83 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
       setIsSaving(false);
     }
   }, [network, isAuthenticated]);
+
+  // Handle deduplication - find and merge duplicate entities
+  const handleDeduplicate = useCallback(async () => {
+    if (!savedGraphId) {
+      toast.error('Please save the network first to use deduplication');
+      return;
+    }
+    
+    setIsDeduplicating(true);
+    try {
+      // First do a dry run to see what would be merged
+      const dryResult = await api.deduplicateEntities(savedGraphId, true, 0.75);
+      
+      if (dryResult.result.duplicates_found === 0) {
+        toast.success('No duplicate entities found!');
+        return;
+      }
+      
+      // Show what would be merged and ask for confirmation
+      const mergeList = dryResult.result.potential_merges
+        .map(m => `"${m.entity1.name}" \u2192 "${m.entity2.name}" (${Math.round(m.confidence * 100)}%)`)
+        .join('\n');
+      
+      if (!confirm(`Found ${dryResult.result.duplicates_found} potential duplicates:\n\n${mergeList}\n\nMerge them?`)) {
+        return;
+      }
+      
+      // Apply the merges
+      const result = await api.deduplicateEntities(savedGraphId, false, 0.75);
+      toast.success(`Merged ${result.result.merged_count || 0} duplicate entities`);
+      
+      // Reload the graph to reflect changes
+      // TODO: Implement graph reload
+    } catch (error) {
+      console.error('Deduplication error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to deduplicate');
+    } finally {
+      setIsDeduplicating(false);
+    }
+  }, [savedGraphId]);
+
+  // Handle relationship normalization
+  const handleNormalize = useCallback(async () => {
+    if (!savedGraphId) {
+      toast.error('Please save the network first to use normalization');
+      return;
+    }
+    
+    setIsNormalizing(true);
+    try {
+      // First do a dry run
+      const dryResult = await api.normalizeRelationships(savedGraphId, true);
+      
+      if (dryResult.result.type_changes === 0 && dryResult.result.duplicates_found === 0) {
+        toast.success('All relationships are already normalized!');
+        return;
+      }
+      
+      const changes = dryResult.result.changes.slice(0, 5)
+        .map(c => `"${c.original_type}" \u2192 "${c.canonical_type}"`)
+        .join('\n');
+      
+      if (!confirm(`Found ${dryResult.result.type_changes} type changes and ${dryResult.result.duplicates_found} duplicates.\n\nExamples:\n${changes}\n\nApply normalization?`)) {
+        return;
+      }
+      
+      // Apply the normalization
+      const result = await api.normalizeRelationships(savedGraphId, false);
+      toast.success(`Normalized ${result.result.type_changes} relationships, removed ${result.result.duplicates_found} duplicates`);
+      
+    } catch (error) {
+      console.error('Normalization error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to normalize');
+    } finally {
+      setIsNormalizing(false);
+    }
+  }, [savedGraphId]);
 
   // Handle share network
   const [isSharing, setIsSharing] = useState(false);
@@ -1321,6 +1404,48 @@ export default function Sidebar({ onNarrativeEvent, setIsProcessing: setParentPr
               )}
             </div>
           </div>
+          
+          {/* Graph Tools - Deduplication and Normalization */}
+          {network.entities.length > 0 && (
+            <div className="pt-2 border-t border-sidebar-border/50">
+              <div className="text-xs font-medium text-muted-foreground mb-2">Graph Tools</div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={handleDeduplicate}
+                  disabled={isDeduplicating || !savedGraphId}
+                  title={savedGraphId ? "Find and merge duplicate entities" : "Save network first to use this feature"}
+                >
+                  {isDeduplicating ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3 h-3 mr-1" />
+                  )}
+                  Dedupe
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 h-7 text-xs"
+                  onClick={handleNormalize}
+                  disabled={isNormalizing || !savedGraphId}
+                  title={savedGraphId ? "Normalize relationship types" : "Save network first to use this feature"}
+                >
+                  {isNormalizing ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : (
+                    <Wand2 className="w-3 h-3 mr-1" />
+                  )}
+                  Normalize
+                </Button>
+              </div>
+              {!savedGraphId && (
+                <p className="text-xs text-muted-foreground mt-1 italic">Save network to enable graph tools</p>
+              )}
+            </div>
+          )}
         </CollapsibleContent>
       </Collapsible>
 

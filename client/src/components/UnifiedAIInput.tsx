@@ -355,6 +355,19 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
         onResearchHistory?.({ query, source: 'cache' });
       },
       
+      onSanctionsAlert: (entity, sanctionType, details) => {
+        // Show prominent toast for sanctions alerts
+        toast.warning(`⚠️ SANCTIONS ALERT: ${entity}`, {
+          description: details || 'This entity may be subject to international sanctions',
+          duration: 10000,  // Keep visible longer
+        });
+        onNarrativeEvent?.({
+          type: 'error',
+          title: `⚠️ Sanctions Alert: ${entity}`,
+          content: `${sanctionType}: ${details || 'This entity may be subject to international sanctions. Please verify before proceeding.'}`,
+        });
+      },
+      
       onGraphAnalysis: (analysis) => {
         onNarrativeEvent?.({
           type: 'reasoning',

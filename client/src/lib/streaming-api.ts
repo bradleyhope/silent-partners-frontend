@@ -612,6 +612,8 @@ export type OrchestratorEventType =
   | 'suggestions'  // NEW v2.0
   | 'research_cached'  // NEW v2.0
   | 'graph_analysis'  // NEW v2.0
+  | 'sanctions_alert'  // Sanctions warning
+  | 'using_cached_research'  // Backend compatibility
   | 'error';
 
 export interface OrchestratorCallbacks {
@@ -634,6 +636,7 @@ export interface OrchestratorCallbacks {
   onSuggestions?: (suggestions: Array<{ type: string; message: string; action?: string }>) => void;
   onResearchCached?: (query: string, message: string) => void;
   onGraphAnalysis?: (analysis: { entity_count: number; relationship_count: number; central_nodes: string[]; orphans: string[]; gaps: string[] }) => void;
+  onSanctionsAlert?: (entity: string, sanctionType: string, details: string) => void;
 }
 
 export interface InvestigationContext {
@@ -862,6 +865,18 @@ function handleOrchestratorEvent(event: { type: OrchestratorEventType; data: any
       
     case 'graph_analysis':
       callbacks.onGraphAnalysis?.(data.analysis || {});
+      break;
+      
+    case 'sanctions_alert':
+      callbacks.onSanctionsAlert?.(data.entity || '', data.sanction_type || 'unknown', data.details || '');
+      // Also show as a warning
+      callbacks.onWarning?.(`⚠️ SANCTIONS ALERT: ${data.entity} - ${data.details || 'May be subject to sanctions'}`);
+      break;
+      
+    case 'using_cached_research':
+      // Backend compatibility - map to research_cached
+      callbacks.onResearchCached?.(data.query || '', data.message || 'Using cached research');
+      callbacks.onThinking?.(data.message || 'Using cached research');
       break;
   }
 }
