@@ -286,12 +286,30 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
         setIsProcessing(false);
         setProgress(null);  // Clear progress
         abortRef.current = null;  // Clear abort ref
+        
+        // Clear the loading toast and show success
+        toast.dismiss('orchestrator-progress');
+        
+        // Show a prominent completion message
+        const completionMessage = entities.length > 0 || relationships.length > 0
+          ? `✅ Done! Found ${entities.length} entities and ${relationships.length} connections`
+          : '✅ Investigation complete';
+        
+        toast.success(completionMessage, {
+          duration: 5000,
+          style: {
+            background: '#10B981',
+            color: 'white',
+            fontWeight: 'bold',
+          },
+        });
+        
         onNarrativeEvent?.({
           type: 'extraction',
-          title: 'Investigation Complete',
-          content: `Found ${entities.length} entities and ${relationships.length} connections`,
+          title: '✅ Investigation Complete',
+          content: `Found ${entities.length} entities and ${relationships.length} connections. ${message}`,
         });
-        toast.success(message, { id: 'orchestrator-progress' });
+        
         setInput('');
       },
       
@@ -402,20 +420,24 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
         )}
       </div>
       
-      {/* Progress indicator */}
+      {/* Progress indicator - compact design */}
       {progress && (
-        <div className="space-y-1">
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>Step {progress.step} of {progress.total}</span>
-            <span>{Math.round((progress.step / progress.total) * 100)}%</span>
+        <div className="bg-muted/50 rounded-lg p-2 border border-border">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-3 h-3 animate-spin text-primary flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
+                <span className="truncate">{progress.goal}</span>
+                <span className="flex-shrink-0 ml-2">{progress.step}/{progress.total}</span>
+              </div>
+              <div className="h-1 bg-muted rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-primary transition-all duration-300 ease-out"
+                  style={{ width: `${(progress.step / progress.total) * 100}%` }}
+                />
+              </div>
+            </div>
           </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-primary transition-all duration-300 ease-out"
-              style={{ width: `${(progress.step / progress.total) * 100}%` }}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground truncate">{progress.goal}</p>
         </div>
       )}
       

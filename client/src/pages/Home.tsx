@@ -23,6 +23,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
 import { Brain, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 
 // Inner component that has access to network context
 function AppContentInner() {
@@ -98,26 +99,67 @@ function AppContentInner() {
     }
   }, []);
 
+  // Chat history for context
+  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+
   // Handle chat submission
-  const handleChatSubmit = useCallback((message: string) => {
+  const handleChatSubmit = useCallback(async (message: string) => {
     // Add user message to narrative
     addNarrativeEvent({
       type: 'user_action',
-      title: 'User Question',
+      title: 'You',
       content: message
     });
     
-    // TODO: Send to AI and get response
-    // For now, just acknowledge
-    setTimeout(() => {
+    // Add to chat history
+    const newHistory = [...chatHistory, { role: 'user' as const, content: message }];
+    setChatHistory(newHistory);
+    
+    // Show thinking indicator
+    setIsProcessing(true);
+    
+    try {
+      // Build context from current network
+      const context = {
+        entities: network.entities.map(e => ({
+          id: e.id,
+          name: e.name,
+          type: e.type,
+          description: e.description
+        })),
+        relationships: network.relationships.map(r => ({
+          source: r.source,
+          target: r.target,
+          type: r.type || r.label || 'related'
+        }))
+      };
+      
+      // Call the AI chat endpoint
+      const result = await api.chat(message, context, chatHistory);
+      
+      // Add AI response to narrative
       addNarrativeEvent({
         type: 'reasoning',
-        title: 'AI Response',
-        content: 'I\'m analyzing your question about the investigation...',
-        reasoning: 'This feature is coming soon. The AI will be able to answer questions about your investigation context.'
+        title: 'AI Assistant',
+        content: result.response,
+        reasoning: result.actions?.length ? `Suggested actions: ${result.actions.map(a => a.message || a.type).join(', ')}` : undefined
       });
-    }, 500);
-  }, [addNarrativeEvent]);
+      
+      // Update chat history with assistant response
+      setChatHistory([...newHistory, { role: 'assistant' as const, content: result.response }]);
+      
+    } catch (error) {
+      console.error('Chat error:', error);
+      addNarrativeEvent({
+        type: 'error',
+        title: 'Error',
+        content: error instanceof Error ? error.message : 'Failed to get AI response'
+      });
+      toast.error('Failed to get AI response');
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [addNarrativeEvent, chatHistory, network.entities, network.relationships]);
 
   // Clear narrative events
   const handleClearEvents = useCallback(() => {

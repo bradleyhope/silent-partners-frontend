@@ -510,6 +510,28 @@ class ApiClient {
       body: JSON.stringify({ dry_run: dryRun, threshold }),
     });
   }
+
+  // Chat with the AI about the network
+  async chat(
+    message: string,
+    context: {
+      entities: Array<{ id: string; name: string; type: string; description?: string }>;
+      relationships: Array<{ source: string; target: string; type: string }>;
+    },
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  ): Promise<{
+    response: string;
+    actions?: Array<{ type: string; target?: string; message?: string }>;
+  }> {
+    return this.request('/agent/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        context,
+        history
+      }),
+    });
+  }
 }
 export const api = new ApiClient();
 export default api;

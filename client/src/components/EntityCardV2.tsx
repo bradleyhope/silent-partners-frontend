@@ -484,54 +484,120 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
         }
         setDetails(prev => [...prev, ...newDetails]);
 
-        // Add suggested connections
+        // Add suggested connections using backend resolution
         if (result.enriched.connections_suggested?.length > 0) {
-          const newEntities: Entity[] = [];
-          const newRelationships: { id: string; source: string; target: string; type: string; label: string }[] = [];
-
-          for (const suggestion of result.enriched.connections_suggested) {
-            const existingEntity = network.entities.find(
-              e => e.name.toLowerCase() === suggestion.name.toLowerCase()
-            );
-
-            if (!existingEntity) {
-              const newId = generateId();
-              newEntities.push({
-                id: newId,
-                name: suggestion.name,
-                type: 'person',
+          try {
+            // Use backend resolution to handle entity deduplication
+            const entitiesToResolve = result.enriched.connections_suggested.map((suggestion: { name: string; relationship: string }) => ({
+              name: suggestion.name,
+              type: 'person', // Default type, backend may infer better
+              description: `Suggested connection to ${entity.name}`
+            }));
+            
+            const relationshipsToResolve = result.enriched.connections_suggested.map((suggestion: { name: string; relationship: string }) => ({
+              source_name: entity.name,
+              target_name: suggestion.name,
+              type: suggestion.relationship
+            }));
+            
+            // Get graph ID from network context (if available) or use 0 for in-memory
+            const graphId = network.id || 0;
+            
+            if (graphId > 0) {
+              // Use backend resolution for saved graphs
+              const resolution = await api.resolveEntities(graphId, entitiesToResolve, relationshipsToResolve);
+              
+              // Add resolved entities and relationships
+              const newEntities: Entity[] = resolution.entities_added.map((e: { id: string; name: string; type: string }) => ({
+                id: e.id || generateId(),
+                name: e.name,
+                type: e.type || 'person',
                 description: `Suggested connection to ${entity.name}`,
                 importance: 5,
-              });
-              newRelationships.push({
+              }));
+              
+              const newRelationships = resolution.relationships_added.map((r: { source: string; target: string; type: string }) => ({
                 id: generateId(),
-                source: entity.id,
-                target: newId,
-                type: suggestion.relationship,
-                label: suggestion.relationship,
-              });
+                source: r.source,
+                target: r.target,
+                type: r.type,
+                label: r.type,
+              }));
+              
+              if (newEntities.length > 0 || newRelationships.length > 0) {
+                addEntitiesAndRelationships(newEntities, newRelationships);
+                const mergedCount = resolution.entities_merged?.length || 0;
+                const message = mergedCount > 0 
+                  ? `✨ Enriched ${entity.name}: Added ${newEntities.length} entities, ${newRelationships.length} connections (merged ${mergedCount} duplicates)`
+                  : `✨ Enriched ${entity.name}: Added ${newEntities.length} entities and ${newRelationships.length} connections`;
+                onAddToNarrative?.(message);
+                toast.success(message);
+              } else {
+                onAddToNarrative?.(`✨ Enriched ${entity.name} with additional details`);
+                toast.success('Entity enriched with additional details');
+              }
             } else {
-              const existingRel = network.relationships.find(
-                r => (r.source === entity.id && r.target === existingEntity.id) ||
-                     (r.target === entity.id && r.source === existingEntity.id)
-              );
-              if (!existingRel) {
-                newRelationships.push({
-                  id: generateId(),
-                  source: entity.id,
-                  target: existingEntity.id,
-                  type: suggestion.relationship,
-                  label: suggestion.relationship,
-                });
+              // Fallback for in-memory graphs: use local resolution with improved matching
+              const newEntities: Entity[] = [];
+              const newRelationships: { id: string; source: string; target: string; type: string; label: string }[] = [];
+
+              for (const suggestion of result.enriched.connections_suggested) {
+                // Improved matching: check for similar names (case-insensitive, partial match)
+                const existingEntity = network.entities.find(
+                  e => e.name.toLowerCase() === suggestion.name.toLowerCase() ||
+                       e.name.toLowerCase().includes(suggestion.name.toLowerCase()) ||
+                       suggestion.name.toLowerCase().includes(e.name.toLowerCase())
+                );
+
+                if (!existingEntity) {
+                  const newId = generateId();
+                  newEntities.push({
+                    id: newId,
+                    name: suggestion.name,
+                    type: 'person',
+                    description: `Suggested connection to ${entity.name}`,
+                    importance: 5,
+                  });
+                  newRelationships.push({
+                    id: generateId(),
+                    source: entity.id,
+                    target: newId,
+                    type: suggestion.relationship,
+                    label: suggestion.relationship,
+                  });
+                } else {
+                  // Normalize relationship type before checking for duplicates
+                  const normalizedType = suggestion.relationship.toLowerCase().replace(/_/g, ' ');
+                  const existingRel = network.relationships.find(
+                    r => ((r.source === entity.id && r.target === existingEntity.id) ||
+                         (r.target === entity.id && r.source === existingEntity.id)) &&
+                         (r.type?.toLowerCase().replace(/_/g, ' ').includes(normalizedType) ||
+                          normalizedType.includes(r.type?.toLowerCase().replace(/_/g, ' ') || ''))
+                  );
+                  if (!existingRel) {
+                    newRelationships.push({
+                      id: generateId(),
+                      source: entity.id,
+                      target: existingEntity.id,
+                      type: suggestion.relationship,
+                      label: suggestion.relationship,
+                    });
+                  }
+                }
+              }
+
+              if (newEntities.length > 0 || newRelationships.length > 0) {
+                addEntitiesAndRelationships(newEntities, newRelationships);
+                onAddToNarrative?.(`✨ Enriched ${entity.name}: Added ${newEntities.length} entities and ${newRelationships.length} connections`);
+                toast.success(`Enriched! Added ${newEntities.length} entities and ${newRelationships.length} connections`);
+              } else {
+                onAddToNarrative?.(`✨ Enriched ${entity.name} with additional details`);
+                toast.success('Entity enriched with additional details');
               }
             }
-          }
-
-          if (newEntities.length > 0 || newRelationships.length > 0) {
-            addEntitiesAndRelationships(newEntities, newRelationships);
-            onAddToNarrative?.(`✨ Enriched ${entity.name}: Added ${newEntities.length} entities and ${newRelationships.length} connections`);
-            toast.success(`Enriched! Added ${newEntities.length} entities and ${newRelationships.length} connections`);
-          } else {
+          } catch (resolutionError) {
+            console.error('Resolution error, falling back to local:', resolutionError);
+            // Fallback to simple local addition if resolution fails
             onAddToNarrative?.(`✨ Enriched ${entity.name} with additional details`);
             toast.success('Entity enriched with additional details');
           }
