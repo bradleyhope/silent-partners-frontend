@@ -533,24 +533,31 @@ class ApiClient {
     });
   }
 
-  // Chat with the AI about the network
+  // Chat with the Per-Investigation Intelligence Agent
   async chat(
     message: string,
     context: {
       entities: Array<{ id: string; name: string; type: string; description?: string }>;
       relationships: Array<{ source: string; target: string; type: string }>;
     },
-    history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    investigationContext?: string
   ): Promise<{
     response: string;
-    actions?: Array<{ type: string; target?: string; message?: string }>;
+    actions?: Array<{ type: string; description?: string; target?: string }>;
+    graph_insights?: {
+      hub_entities?: Array<[string, number]>;
+      patterns_detected?: string[];
+      shell_indicators?: string[];
+    };
   }> {
     return this.request('/v2/agent/chat', {
       method: 'POST',
       body: JSON.stringify({
         message,
         context,
-        history
+        history,
+        investigation_context: investigationContext
       }),
     });
   }

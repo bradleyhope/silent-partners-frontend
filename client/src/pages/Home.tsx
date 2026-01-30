@@ -135,15 +135,35 @@ function AppContentInner() {
         }))
       };
       
-      // Call the AI chat endpoint
-      const result = await api.chat(message, context, chatHistory);
+      // Call the Per-Investigation Intelligence Agent
+      // Pass investigation context (title/description) if available
+      const investigationContext = network.title ? 
+        `Investigation: ${network.title}${network.description ? ` - ${network.description}` : ''}` : 
+        undefined;
+      
+      const result = await api.chat(message, context, chatHistory, investigationContext);
+      
+      // Build reasoning text from graph insights and actions
+      let reasoningText = '';
+      if (result.graph_insights) {
+        const insights = result.graph_insights;
+        if (insights.patterns_detected?.length) {
+          reasoningText += `Patterns: ${insights.patterns_detected.join(', ')}. `;
+        }
+        if (insights.shell_indicators?.length) {
+          reasoningText += `Shell indicators: ${insights.shell_indicators.length} found. `;
+        }
+      }
+      if (result.actions?.length) {
+        reasoningText += `Suggested: ${result.actions.map(a => a.description || a.type).join(', ')}`;
+      }
       
       // Add AI response to narrative
       addNarrativeEvent({
         type: 'reasoning',
         title: 'AI Assistant',
         content: result.response,
-        reasoning: result.actions?.length ? `Suggested actions: ${result.actions.map(a => a.message || a.type).join(', ')}` : undefined
+        reasoning: reasoningText || undefined
       });
       
       // Update chat history with assistant response
