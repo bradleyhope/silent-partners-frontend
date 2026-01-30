@@ -545,7 +545,7 @@ class ApiClient {
     response: string;
     actions?: Array<{ type: string; target?: string; message?: string }>;
   }> {
-    return this.request('/agent/chat', {
+    return this.request('/v2/agent/chat', {
       method: 'POST',
       body: JSON.stringify({
         message,
