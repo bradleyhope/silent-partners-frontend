@@ -912,7 +912,18 @@ function handleAgentV2Event(
         
         // Handle relationship suggestions
         if (event.result.type === 'relationship_suggestion' && event.result.relationship) {
-          callbacks.onRelationshipFound?.({ ...event.result.relationship, is_suggestion: true }, true);
+          // Map backend relationship format to frontend format
+          const rel = event.result.relationship;
+          const mappedRelationship = {
+            source: rel.source,
+            target: rel.target,
+            label: rel.type || rel.label || 'connected to',
+            type: rel.relationship_type || 'connection',
+            is_suggestion: true,
+            evidence: event.result.evidence
+          };
+          relationshipsFound.push(mappedRelationship);
+          callbacks.onRelationshipFound?.(mappedRelationship, true);
         }
       }
       break;
@@ -934,7 +945,20 @@ function handleAgentV2Event(
       if (event.relationships) {
         for (const suggestion of event.relationships) {
           if (suggestion.relationship) {
-            callbacks.onRelationshipFound?.({ ...suggestion.relationship, is_suggestion: true }, true);
+            // Map backend relationship format to frontend format
+            // Backend sends: { source, target, type } where type is the relationship description
+            // Frontend expects: { source, target, label } where label is the relationship description
+            const rel = suggestion.relationship;
+            const mappedRelationship = {
+              source: rel.source,
+              target: rel.target,
+              label: rel.type || rel.label || 'connected to',
+              type: rel.relationship_type || 'connection',
+              is_suggestion: true,
+              evidence: suggestion.evidence
+            };
+            relationshipsFound.push(mappedRelationship);
+            callbacks.onRelationshipFound?.(mappedRelationship, true);
           }
         }
       }
