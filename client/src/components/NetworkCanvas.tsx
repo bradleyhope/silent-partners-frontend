@@ -309,24 +309,58 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       }));
     linksRef.current = links;
 
+    // Calculate optimal layout parameters based on graph size
+    const nodeCount = nodes.length;
+    const linkCount = links.length;
+    const density = linkCount / Math.max(nodeCount, 1);
+    
+    // Dynamic parameters for better layout
+    const linkDistance = Math.max(120, Math.min(250, 180 + nodeCount * 2));
+    const chargeStrength = Math.max(-800, Math.min(-300, -400 - nodeCount * 5));
+    const collisionRadius = Math.max(40, Math.min(80, 50 + density * 5));
+    
     // Update or create simulation
     if (!simulationRef.current) {
       simulationRef.current = d3.forceSimulation<SimulationNode>(nodes)
         .force('link', d3.forceLink<SimulationNode, SimulationLink>(links)
           .id((d: SimulationNode) => d.id)
-          .distance(180)
-          .strength(0.15))
-        .force('charge', d3.forceManyBody().strength(-400))
-        .force('center', d3.forceCenter(width / 2, height / 2).strength(0.05))
-        .force('collision', d3.forceCollide().radius(50))
-        .alphaDecay(0.008)
-        .velocityDecay(0.5);
+          .distance(linkDistance)
+          .strength(0.2)) // Slightly stronger links for better clustering
+        .force('charge', d3.forceManyBody()
+          .strength(chargeStrength)
+          .distanceMax(500)) // Limit charge effect range
+        .force('center', d3.forceCenter(width / 2, height / 2).strength(0.03))
+        .force('collision', d3.forceCollide()
+          .radius((d: SimulationNode) => collisionRadius + getNodeRadius(d))
+          .strength(0.8)) // Strong collision avoidance
+        .force('x', d3.forceX(width / 2).strength(0.02)) // Gentle pull to center X
+        .force('y', d3.forceY(height / 2).strength(0.02)) // Gentle pull to center Y
+        .alphaDecay(0.01) // Slower decay for better settling
+        .velocityDecay(0.4); // Less damping for smoother motion
     } else {
+      // Update simulation with new nodes and dynamic parameters
       simulationRef.current.nodes(nodes);
-      (simulationRef.current.force('link') as d3.ForceLink<SimulationNode, SimulationLink>)
-        .links(links);
-      simulationRef.current.force('center', d3.forceCenter(width / 2, height / 2).strength(0.05));
-      simulationRef.current.alpha(0.3).restart();
+      
+      // Update link force with dynamic distance
+      const linkForce = simulationRef.current.force('link') as d3.ForceLink<SimulationNode, SimulationLink>;
+      linkForce.links(links).distance(linkDistance);
+      
+      // Update charge force
+      (simulationRef.current.force('charge') as d3.ForceManyBody<SimulationNode>)
+        .strength(chargeStrength);
+      
+      // Update collision force
+      (simulationRef.current.force('collision') as d3.ForceCollide<SimulationNode>)
+        .radius((d: SimulationNode) => collisionRadius + getNodeRadius(d));
+      
+      // Update center forces
+      simulationRef.current.force('center', d3.forceCenter(width / 2, height / 2).strength(0.03));
+      simulationRef.current.force('x', d3.forceX(width / 2).strength(0.02));
+      simulationRef.current.force('y', d3.forceY(height / 2).strength(0.02));
+      
+      // Restart with appropriate alpha based on changes
+      const hasNewNodes = newEntityIds.size > 0;
+      simulationRef.current.alpha(hasNewNodes ? 0.5 : 0.3).restart();
     }
 
     const simulation = simulationRef.current;

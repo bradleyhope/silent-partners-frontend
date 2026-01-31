@@ -35,7 +35,7 @@ interface UnifiedAIInputProps {
 }
 
 export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext, graphId, onSuggestions, onResearchHistory, initialQuery }: UnifiedAIInputProps) {
-  const { network, addEntity, addRelationship, clearNetwork, dispatch } = useNetwork();
+  const { network, addEntity, addOrMergeEntity, addRelationship, addOrMergeRelationship, clearNetwork, dispatch, deduplicateNetwork } = useNetwork();
   const [input, setInput] = useState(initialQuery || '');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<{ step: number; total: number; goal: string; startTime: number; entitiesFound?: number; relationshipsFound?: number } | null>(null);
@@ -307,7 +307,8 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
       onEntityFound: (entity, isNew) => {
         if (isNew) {
           const converted = convertEntity(entity);
-          addEntity(converted);
+          // Use addOrMergeEntity to prevent duplicates
+          addOrMergeEntity(converted);
           // Update progress with entity count
           setProgress(prev => prev ? { ...prev, entitiesFound: (prev.entitiesFound || 0) + 1 } : null);
           onNarrativeEvent?.({
@@ -324,7 +325,8 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
         if (isNew) {
           const converted = convertRelationship(relationship);
           if (converted) {
-            addRelationship(converted);
+            // Use addOrMergeRelationship to prevent duplicate relationships
+            addOrMergeRelationship(converted);
             // Update progress with relationship count
             setProgress(prev => prev ? { ...prev, relationshipsFound: (prev.relationshipsFound || 0) + 1 } : null);
             // Show visual feedback for relationship discovery

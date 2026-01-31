@@ -28,7 +28,7 @@ interface NetworkPanelProps {
 }
 
 export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }: NetworkPanelProps) {
-  const { network, dispatch, clearNetwork, addEntitiesAndRelationships, setNetwork } = useNetwork();
+  const { network, dispatch, clearNetwork, addEntitiesAndRelationships, setNetwork, deduplicateNetwork } = useNetwork();
   const { isAuthenticated } = useAuth();
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -451,10 +451,20 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
     setShowExportMenu(false);
   }, [network]);
 
-  // Handle deduplication
+  // Handle local deduplication (works without saving)
+  const handleLocalDeduplicate = useCallback(() => {
+    const beforeCount = network.entities.length;
+    deduplicateNetwork();
+    // Note: We can't get the after count immediately due to React's async state updates
+    // The deduplicateNetwork function logs the counts to console
+    toast.success(`Deduplication complete! Check console for details.`);
+  }, [network.entities.length, deduplicateNetwork]);
+
+  // Handle cloud deduplication (requires saving first)
   const handleDeduplicate = useCallback(async () => {
     if (!savedGraphId) {
-      toast.error('Please save the network first to use deduplication');
+      // Use local deduplication instead
+      handleLocalDeduplicate();
       return;
     }
 
@@ -483,7 +493,7 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
     } finally {
       setIsDeduplicating(false);
     }
-  }, [savedGraphId]);
+  }, [savedGraphId, handleLocalDeduplicate]);
 
   // Handle normalization
   const handleNormalize = useCallback(async () => {
@@ -706,8 +716,8 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
                   size="sm"
                   className="flex-1 h-7 text-xs"
                   onClick={handleDeduplicate}
-                  disabled={isDeduplicating || !savedGraphId}
-                  title={savedGraphId ? 'Find and merge duplicate entities' : 'Save network first to use this feature'}
+                  disabled={isDeduplicating}
+                  title="Find and merge duplicate entities"
                 >
                   {isDeduplicating ? (
                     <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -733,7 +743,7 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
                 </Button>
               </div>
               {!savedGraphId && (
-                <p className="text-xs text-muted-foreground mt-1 italic">Save network to enable graph tools</p>
+                <p className="text-xs text-muted-foreground mt-1 italic">Dedupe works locally. Save network for cloud-based normalization.</p>
               )}
             </div>
           )}
