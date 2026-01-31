@@ -617,16 +617,19 @@ export default {
 };
 
 
-// Orchestrator API v6.1 - environment variable with development fallback
-const ENV_API_V6 = import.meta.env.VITE_API_V6;
+// Agent V2 API - uses the new tool-calling agent with Modal serverless processing
+// This replaces the old v6 orchestrator which had gevent compatibility issues
+const getAgentV2Api = () => {
+  return `${getApiBase()}/v2/agent-v2`;
+};
 
+// Legacy v6 API (kept for reference, but no longer used)
+const ENV_API_V6 = import.meta.env.VITE_API_V6;
 const getApiV6 = () => {
   if (ENV_API_V6) return ENV_API_V6;
   if (import.meta.env.DEV) {
     return 'https://silent-partners-ai-api.onrender.com/api/v6';
   }
-  // Fall back to base API + /v6 if V6 not explicitly set
-  // Note: getApiBase() should return URL ending with /api
   return `${getApiBase()}/v6`;
 };
 
@@ -688,10 +691,13 @@ export interface InvestigationContext {
 }
 
 /**
- * Stream orchestrated query execution.
- * The Orchestrator understands intent, plans approach, and coordinates all AI functions.
+ * Stream orchestrated query execution using Agent V2.
+ * The Agent V2 uses OpenAI function calling with Modal serverless processing.
  * 
  * Supports /EntityName syntax to reference entities from the graph.
+ * 
+ * NOTE: This now uses the Agent V2 endpoint instead of the legacy v6 orchestrator
+ * which had compatibility issues with gevent workers.
  */
 export function streamOrchestrate(
   query: string,
@@ -701,12 +707,17 @@ export function streamOrchestrate(
   const abortController = new AbortController();
   let lastActivityTime = Date.now();
   let timeoutId: NodeJS.Timeout | null = null;
-  const TIMEOUT_MS = 120000; // 2 minute timeout
+  const TIMEOUT_MS = 180000; // 3 minute timeout (agent may need more time for tool calls)
+  
+  // Track entities and relationships found during this session
+  const entitiesFound: PipelineEntity[] = [];
+  const relationshipsFound: PipelineRelationship[] = [];
+  let toolCallCount = 0;
   
   // Check for inactivity and abort if needed
   const checkTimeout = () => {
     if (Date.now() - lastActivityTime > TIMEOUT_MS) {
-      console.warn('Orchestrator timeout - no activity for 2 minutes');
+      console.warn('Agent V2 timeout - no activity for 3 minutes');
       callbacks.onError?.('Investigation timed out. Please try again with a simpler query.', true);
       abortController.abort();
       return;
@@ -719,24 +730,28 @@ export function streamOrchestrate(
     timeoutId = setTimeout(checkTimeout, 10000);
     
     try {
-      const response = await fetch(`${getApiV6()}/orchestrate`, {
+      // Use Agent V2 endpoint instead of legacy v6 orchestrator
+      const response = await fetch(`${getAgentV2Api()}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
         },
         body: JSON.stringify({
-          query,
-          stream: true,
-          graph_id: context.graph_id,  // NEW: For research memory
-          context: {
-            topic: context.topic || '',
-            domain: context.domain || '',
-            focus: context.focus || '',
-            key_questions: context.key_questions || [],
-            entities: context.entities || [],
-            relationships: context.relationships || [],
-          },
+          message: query,
+          entities: context.entities || [],
+          relationships: context.relationships || [],
+          history: [],
+          investigation_context: {
+            title: context.topic || '',
+            description: context.domain || '',
+            key_findings: [],
+            hypotheses: [],
+            red_flags: [],
+            timeline: [],
+            next_steps: [],
+            session_summaries: []
+          }
         }),
         signal: abortController.signal,
       });
@@ -771,9 +786,11 @@ export function streamOrchestrate(
               // Update activity timestamp on each event
               lastActivityTime = Date.now();
               const event = JSON.parse(line.slice(6));
-              handleOrchestratorEvent(event, callbacks);
+              // Handle Agent V2 events and map to orchestrator callbacks
+              handleAgentV2Event(event, callbacks, entitiesFound, relationshipsFound, toolCallCount);
+              if (event.type === 'tool_start') toolCallCount++;
             } catch (e) {
-              console.warn('Failed to parse orchestrator event:', line, e);
+              console.warn('Failed to parse agent event:', line, e);
             }
           }
         }
@@ -785,7 +802,7 @@ export function streamOrchestrate(
         return;
       }
       callbacks.onError?.(
-        error instanceof Error ? error.message : 'Orchestration connection failed',
+        error instanceof Error ? error.message : 'Agent connection failed',
         true
       );
     } finally {
@@ -803,118 +820,178 @@ export function streamOrchestrate(
 }
 
 /**
- * Handle individual orchestrator events.
+ * Get a user-friendly message for tool start events.
  */
-function handleOrchestratorEvent(event: { type: OrchestratorEventType; data: any }, callbacks: OrchestratorCallbacks) {
-  const data = event.data || {};
-  
+function getToolStartMessage(tool: string, args: Record<string, any>): string {
+  switch (tool) {
+    case 'search_web':
+      return `🔍 Searching: ${args.query || 'web'}...`;
+    case 'enrich_entity':
+      return `📊 Enriching: ${args.entity_name || 'entity'}...`;
+    case 'find_connections':
+      return `🔗 Finding connections between ${args.entity1 || '?'} and ${args.entity2 || '?'}...`;
+    case 'query_graph':
+      return `📈 Analyzing graph: ${args.query_type || 'query'}...`;
+    case 'add_finding':
+      return `📝 Recording finding...`;
+    case 'add_red_flag':
+      return `🚩 Recording red flag...`;
+    case 'suggest_entity':
+      return `💡 Suggesting entity: ${args.name || 'entity'}...`;
+    case 'suggest_relationship':
+      return `💡 Suggesting connection...`;
+    default:
+      return `⚙️ Executing: ${tool}...`;
+  }
+}
+
+/**
+ * Handle Agent V2 events and map to orchestrator callbacks.
+ * This provides backward compatibility with the existing UI.
+ */
+function handleAgentV2Event(
+  event: { type: string; [key: string]: any },
+  callbacks: OrchestratorCallbacks,
+  entitiesFound: PipelineEntity[],
+  relationshipsFound: PipelineRelationship[],
+  toolCallCount: number
+) {
   switch (event.type) {
-    case 'orchestrator_started':
-      callbacks.onStart?.(data.query || '', data.referenced_entities || []);
+    case 'thinking':
+      callbacks.onThinking?.(event.content || 'Thinking...');
       break;
       
-    case 'orchestrator_thinking':
-      callbacks.onThinking?.(data.message || 'Thinking...');
+    case 'tool_start':
+      // Simulate step started
+      const toolMessage = getToolStartMessage(event.tool, event.arguments || {});
+      callbacks.onStepStarted?.(toolCallCount + 1, toolCallCount + 2, toolMessage);
+      callbacks.onSearching?.(toolMessage);
+      callbacks.onThinking?.(toolMessage);
       break;
       
-    case 'intent_classified':
-      callbacks.onIntentClassified?.(data.intent_type || '', data.confidence || 1.0, data.message || '', data.reasoning || '');
-      // Also emit thinking with reasoning
-      if (data.reasoning) {
-        callbacks.onThinking?.(data.message || '', data.reasoning);
+    case 'tool_result':
+      // Simulate step complete
+      callbacks.onStepComplete?.(toolCallCount, entitiesFound.length, relationshipsFound.length);
+      if (event.result && !event.result.error) {
+        callbacks.onResearchFound?.(`Found results from ${event.tool}`);
+        
+        // Extract entities from tool results
+        if (event.result.entities) {
+          for (const entity of event.result.entities) {
+            if (!entitiesFound.some(e => e.name?.toLowerCase() === entity.name?.toLowerCase())) {
+              entitiesFound.push(entity);
+              callbacks.onEntityFound?.(entity, true);
+            }
+          }
+        }
+        
+        // Extract related entities from enrich results
+        if (event.result.related_entities) {
+          for (const entity of event.result.related_entities) {
+            if (!entitiesFound.some(e => e.name?.toLowerCase() === entity.name?.toLowerCase())) {
+              entitiesFound.push(entity);
+              callbacks.onEntityFound?.(entity, true);
+            }
+          }
+        }
+        
+        // Extract connections
+        if (event.result.connections) {
+          for (const conn of event.result.connections) {
+            if (conn.relationship) {
+              relationshipsFound.push(conn.relationship);
+              callbacks.onRelationshipFound?.(conn.relationship, true);
+            }
+          }
+        }
+        
+        // Handle entity suggestions
+        if (event.result.type === 'entity_suggestion' && event.result.entity) {
+          callbacks.onEntityFound?.({ ...event.result.entity, is_suggestion: true }, true);
+        }
+        
+        // Handle relationship suggestions
+        if (event.result.type === 'relationship_suggestion' && event.result.relationship) {
+          callbacks.onRelationshipFound?.({ ...event.result.relationship, is_suggestion: true }, true);
+        }
       }
       break;
       
-    case 'plan_created':
-      callbacks.onPlanCreated?.(data.steps || 0, data.plan || [], data.reasoning || '');
-      callbacks.onThinking?.(data.message || `Created ${data.steps}-step plan`, data.reasoning || '');
+    case 'response':
+      callbacks.onThinking?.(event.content || '');
       break;
       
-    case 'step_started':
-      callbacks.onStepStarted?.(data.step || 0, data.total || 0, data.goal || '');
-      callbacks.onThinking?.(data.message || `Step ${data.step}: ${data.goal}`);
-      break;
-      
-    case 'step_complete':
-      callbacks.onStepComplete?.(data.step || 0, data.entities_found || 0, data.relationships_found || 0);
-      break;
-      
-    case 'step_warning':
-      callbacks.onWarning?.(data.message || 'Warning');
-      break;
-      
-    case 'step_error':
-      if (data.recoverable) {
-        callbacks.onWarning?.(data.message || 'Recoverable error');
-      } else {
-        callbacks.onError?.(data.message || 'Step failed', false);
+    case 'suggestions':
+      // Handle entity suggestions
+      if (event.entities) {
+        for (const suggestion of event.entities) {
+          if (suggestion.entity) {
+            callbacks.onEntityFound?.({ ...suggestion.entity, is_suggestion: true }, true);
+          }
+        }
+      }
+      // Handle relationship suggestions
+      if (event.relationships) {
+        for (const suggestion of event.relationships) {
+          if (suggestion.relationship) {
+            callbacks.onRelationshipFound?.({ ...suggestion.relationship, is_suggestion: true }, true);
+          }
+        }
       }
       break;
       
-    case 'searching':
-      callbacks.onSearching?.(data.message || 'Searching...');
+    case 'context_update':
+      // Could emit graph analysis here
+      callbacks.onGraphAnalysis?.({
+        entity_count: entitiesFound.length,
+        relationship_count: relationshipsFound.length,
+        central_nodes: [],
+        orphans: [],
+        gaps: []
+      });
       break;
       
-    case 'research_found':
-      callbacks.onResearchFound?.(data.message || 'Found research data');
-      break;
-      
-    case 'entity_found':
-      if (data.entity) {
-        callbacks.onEntityFound?.(data.entity, data.is_new !== false);
-      }
-      break;
-      
-    case 'relationship_found':
-      if (data.relationship) {
-        callbacks.onRelationshipFound?.(data.relationship, data.is_new !== false);
-      }
-      break;
-      
-    case 'fact_found':
-      callbacks.onFactFound?.(data.entity || '', data.fact || {});
-      break;
-      
-    case 'enrich_complete':
-      callbacks.onEnrichComplete?.(data.entity || '', data.facts_found || 0);
-      break;
-      
-    case 'orchestrator_complete':
+    case 'complete':
       callbacks.onComplete?.(
-        data.entities || [],
-        data.relationships || [],
-        data.message || 'Complete'
+        entitiesFound,
+        relationshipsFound,
+        event.response || 'Investigation complete'
       );
       break;
       
     case 'error':
-      callbacks.onError?.(data.message || 'An error occurred', data.recoverable || false);
+      callbacks.onError?.(event.error || 'An error occurred', false);
       break;
       
-    // NEW v2.0 events
-    case 'suggestions':
-      callbacks.onSuggestions?.(data.suggestions || []);
+    // Legacy event types for backward compatibility
+    case 'orchestrator_started':
+      callbacks.onStart?.(event.data?.query || '', event.data?.referenced_entities || []);
       break;
       
-    case 'research_cached':
-      callbacks.onResearchCached?.(data.query || '', data.message || 'Using cached research');
-      callbacks.onThinking?.(data.message || 'Using cached research');
+    case 'orchestrator_thinking':
+      callbacks.onThinking?.(event.data?.message || 'Thinking...');
       break;
       
-    case 'graph_analysis':
-      callbacks.onGraphAnalysis?.(data.analysis || {});
+    case 'entity_found':
+      if (event.data?.entity) {
+        entitiesFound.push(event.data.entity);
+        callbacks.onEntityFound?.(event.data.entity, event.data.is_new !== false);
+      }
       break;
       
-    case 'sanctions_alert':
-      callbacks.onSanctionsAlert?.(data.entity || '', data.sanction_type || 'unknown', data.details || '');
-      // Also show as a warning
-      callbacks.onWarning?.(`⚠️ SANCTIONS ALERT: ${data.entity} - ${data.details || 'May be subject to sanctions'}`);
+    case 'relationship_found':
+      if (event.data?.relationship) {
+        relationshipsFound.push(event.data.relationship);
+        callbacks.onRelationshipFound?.(event.data.relationship, event.data.is_new !== false);
+      }
       break;
       
-    case 'using_cached_research':
-      // Backend compatibility - map to research_cached
-      callbacks.onResearchCached?.(data.query || '', data.message || 'Using cached research');
-      callbacks.onThinking?.(data.message || 'Using cached research');
+    case 'orchestrator_complete':
+      callbacks.onComplete?.(
+        event.data?.entities || entitiesFound,
+        event.data?.relationships || relationshipsFound,
+        event.data?.message || 'Complete'
+      );
       break;
   }
 }
