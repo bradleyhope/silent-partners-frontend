@@ -35,6 +35,15 @@ export interface InvestigationContext {
   domain: string;
   focus: string;
   keyQuestions: string[];
+  // New fields from backend
+  title?: string;
+  description?: string;
+  key_findings?: string[];
+  red_flags?: Array<{description: string; severity: string; entities_involved?: string[]}>;
+  next_steps?: Array<{suggestion: string; reasoning: string; priority?: string; action_query: string}> | string[];
+  hypotheses?: Array<{hypothesis: string; status: string}>;
+  session_summaries?: Array<{date: string; summary: string}>;
+  last_updated?: string;
 }
 
 export interface Suggestion {
@@ -347,10 +356,63 @@ export default function NarrativePanel({
                     </ul>
                   </div>
                 )}
+                {/* Key Findings */}
+                {context.key_findings && context.key_findings.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border">
+                    <span className="text-muted-foreground font-medium">Key Findings:</span>
+                    <ul className="mt-1 space-y-0.5 pl-3">
+                      {context.key_findings.slice(0, 5).map((finding, i) => (
+                        <li key={i} className="flex items-start gap-1">
+                          <Lightbulb className="w-3 h-3 mt-0.5 text-yellow-500 shrink-0" />
+                          <span>{finding}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {/* Red Flags */}
+                {context.red_flags && context.red_flags.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border">
+                    <span className="text-muted-foreground font-medium text-red-500">Red Flags:</span>
+                    <ul className="mt-1 space-y-0.5 pl-3">
+                      {context.red_flags.slice(0, 3).map((flag, i) => (
+                        <li key={i} className="flex items-start gap-1 text-red-400">
+                          <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                          <span>{flag.description}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {/* Next Steps - One-click actions */}
+                {context.next_steps && context.next_steps.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border">
+                    <span className="text-muted-foreground font-medium">Suggested Next Steps:</span>
+                    <div className="mt-1 space-y-1">
+                      {(context.next_steps as any[]).slice(0, 3).map((step, i) => {
+                        const isString = typeof step === 'string';
+                        const suggestion = isString ? step : step.suggestion;
+                        const actionQuery = isString ? suggestion : step.action_query;
+                        return (
+                          <Button
+                            key={i}
+                            variant="outline"
+                            size="sm"
+                            className="h-auto py-1 px-2 text-[10px] w-full justify-start text-left"
+                            onClick={() => onActionClick(actionQuery)}
+                          >
+                            <Sparkles className="w-3 h-3 mr-1 text-green-500 shrink-0" />
+                            <span className="truncate">{suggestion}</span>
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <Button 
                   variant="ghost" 
                   size="sm" 
-                  className="h-6 text-[10px] mt-1"
+                  className="h-6 text-[10px] mt-2"
                   onClick={() => setIsEditingContext(true)}
                 >
                   <Edit2 className="w-3 h-3 mr-1" />

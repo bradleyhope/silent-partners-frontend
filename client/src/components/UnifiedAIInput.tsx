@@ -32,9 +32,16 @@ interface UnifiedAIInputProps {
   onSuggestions?: (suggestions: Array<{ type: string; message: string; action?: string }>) => void;
   onResearchHistory?: (item: { query: string; source: string }) => void;
   initialQuery?: string;  // Pre-populate input from templates
+  onContextUpdate?: (context: {
+    title?: string;
+    description?: string;
+    key_findings?: string[];
+    red_flags?: Array<{description: string; severity: string; entities_involved?: string[]}>;
+    next_steps?: Array<{suggestion: string; reasoning: string; priority?: string; action_query: string}>;
+  }) => void;
 }
 
-export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext, graphId, onSuggestions, onResearchHistory, initialQuery }: UnifiedAIInputProps) {
+export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, investigationContext, graphId, onSuggestions, onResearchHistory, initialQuery, onContextUpdate }: UnifiedAIInputProps) {
   const { network, addEntity, addOrMergeEntity, addRelationship, addOrMergeRelationship, clearNetwork, dispatch, deduplicateNetwork } = useNetwork();
   const [input, setInput] = useState(initialQuery || '');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -449,11 +456,58 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
             : undefined,
         });
       },
+      
+      // Context management callback
+      onContextUpdate: (context) => {
+        // Pass context updates to parent component
+        onContextUpdate?.(context);
+        
+        // Update network title if provided
+        if (context.title) {
+          dispatch({ type: 'UPDATE_NETWORK', payload: { title: context.title } });
+        }
+        
+        // Log context updates as narrative events
+        if (context.update_type === 'set_investigation_title' && context.title) {
+          onNarrativeEvent?.({
+            type: 'context_update',
+            title: 'Investigation Title Set',
+            content: context.title,
+          });
+        } else if (context.update_type === 'update_investigation_summary' && context.description) {
+          onNarrativeEvent?.({
+            type: 'context_update',
+            title: 'Summary Updated',
+            content: context.description,
+          });
+        } else if (context.update_type === 'suggest_next_step' && context.next_steps?.length) {
+          const latestStep = context.next_steps[context.next_steps.length - 1];
+          const stepText = typeof latestStep === 'string' ? latestStep : latestStep.suggestion;
+          onNarrativeEvent?.({
+            type: 'suggestion',
+            title: 'Next Step Suggested',
+            content: stepText,
+          });
+        } else if (context.update_type === 'add_finding' && context.key_findings?.length) {
+          onNarrativeEvent?.({
+            type: 'discovery',
+            title: 'Key Finding',
+            content: context.key_findings[context.key_findings.length - 1],
+          });
+        } else if (context.update_type === 'add_red_flag' && context.red_flags?.length) {
+          const latestFlag = context.red_flags[context.red_flags.length - 1];
+          onNarrativeEvent?.({
+            type: 'error',
+            title: `⚠️ Red Flag (${latestFlag.severity})`,
+            content: latestFlag.description,
+          });
+        }
+      },
     };
     
     // Start orchestration
     abortRef.current = streamOrchestrate(input, context, callbacks);
-  }, [input, isProcessing, clearFirst, clearNetwork, investigationContext, network, onNarrativeEvent, convertEntity, convertRelationship, addEntity, addRelationship, dispatch, processPendingRelationships]);
+  }, [input, isProcessing, clearFirst, clearNetwork, investigationContext, network, onNarrativeEvent, convertEntity, convertRelationship, addEntity, addRelationship, dispatch, processPendingRelationships, onContextUpdate]);
   
   // Cancel handler
   const handleCancel = useCallback(() => {

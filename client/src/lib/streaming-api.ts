@@ -678,6 +678,15 @@ export interface OrchestratorCallbacks {
   onResearchCached?: (query: string, message: string) => void;
   onGraphAnalysis?: (analysis: { entity_count: number; relationship_count: number; central_nodes: string[]; orphans: string[]; gaps: string[] }) => void;
   onSanctionsAlert?: (entity: string, sanctionType: string, details: string) => void;
+  // Context management callbacks
+  onContextUpdate?: (context: {
+    title?: string;
+    description?: string;
+    key_findings?: string[];
+    red_flags?: Array<{description: string; severity: string; entities_involved?: string[]}>;
+    next_steps?: Array<{suggestion: string; reasoning: string; priority?: string; action_query: string}>;
+    update_type?: string;
+  }) => void;
 }
 
 export interface InvestigationContext {
@@ -965,7 +974,18 @@ function handleAgentV2Event(
       break;
       
     case 'context_update':
-      // Could emit graph analysis here
+      // Emit context update with investigation metadata
+      if (event.context) {
+        callbacks.onContextUpdate?.({
+          title: event.context.title,
+          description: event.context.description,
+          key_findings: event.context.key_findings,
+          red_flags: event.context.red_flags,
+          next_steps: event.context.next_steps,
+          update_type: event.update_type
+        });
+      }
+      // Also emit graph analysis
       callbacks.onGraphAnalysis?.({
         entity_count: entitiesFound.length,
         relationship_count: relationshipsFound.length,
