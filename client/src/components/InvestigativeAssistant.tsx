@@ -17,6 +17,8 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,24 +35,11 @@ import { toast } from 'sonner';
 import { streamOrchestrate, OrchestratorCallbacks, InvestigationContext as StreamContext, PipelineEntity, PipelineRelationship } from '@/lib/streaming-api';
 import { generateId, Entity, Relationship } from '@/lib/store';
 import claimsApi, { Claim } from '@/lib/claims-api';
+import { ChatMessageBubble, ChatMessage } from './ChatMessageBubble';
 
 // ============================================
 // Types and Interfaces
 // ============================================
-
-// Message types for the chat
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: string;
-  metadata?: {
-    entitiesFound?: number;
-    relationshipsFound?: number;
-    claimsCreated?: number;
-    toolsUsed?: string[];
-  };
-}
 
 // Narrative event (from NarrativePanel)
 export interface NarrativeEvent {
@@ -300,52 +289,6 @@ function ContextEditor({ context, onSave, onCancel }: {
         <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={onCancel}>
           Cancel
         </Button>
-      </div>
-    </div>
-  );
-}
-
-// Chat message component
-function ChatMessageBubble({ message }: { message: ChatMessage }) {
-  const isUser = message.role === 'user';
-  const isSystem = message.role === 'system';
-  
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
-      <div className={`max-w-[85%] ${
-        isUser 
-          ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-md' 
-          : isSystem
-            ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg'
-            : 'bg-muted rounded-2xl rounded-bl-md'
-      } px-4 py-2.5`}>
-        {!isUser && !isSystem && (
-          <div className="flex items-center gap-1.5 mb-1">
-            <Brain className="w-3.5 h-3.5 text-primary" />
-            <span className="text-[10px] font-medium text-muted-foreground">Assistant</span>
-          </div>
-        )}
-        <p className={`text-sm whitespace-pre-wrap ${isUser ? '' : 'text-foreground'}`}>
-          {message.content}
-        </p>
-        <div className="flex items-center justify-between mt-1.5">
-          <span className={`text-[10px] ${isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-            {formatTime(message.timestamp)}
-          </span>
-          {message.metadata && (
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              {message.metadata.entitiesFound !== undefined && (
-                <span>+{message.metadata.entitiesFound} entities</span>
-              )}
-              {message.metadata.relationshipsFound !== undefined && (
-                <span>+{message.metadata.relationshipsFound} connections</span>
-              )}
-              {message.metadata.claimsCreated !== undefined && message.metadata.claimsCreated > 0 && (
-                <span className="text-amber-600">+{message.metadata.claimsCreated} pending</span>
-              )}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
