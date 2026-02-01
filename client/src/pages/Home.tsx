@@ -82,7 +82,7 @@ function AppContentInner() {
     });
   }, [addNarrativeEvent]);
 
-  // Handle action clicks from narrative
+  // Handle action clicks from narrative - execute via Orchestrator
   const handleNarrativeAction = useCallback((action: string) => {
     // Parse action string like "enrich:entity_id"
     const [actionType, ...args] = action.split(':');
@@ -90,15 +90,21 @@ function AppContentInner() {
     switch (actionType) {
       case 'enrich':
         toast.info(`Enriching entity: ${args.join(':')}`);
-        // TODO: Trigger enrichment
+        handleChatSubmit(`Enrich and find more details about ${args.join(':')}`);
         break;
       case 'dismiss':
         // Just remove the suggestion
         break;
       default:
-        console.log('Unknown action:', action);
+        // For any other action, treat it as a research query
+        if (action && action.length > 5) {
+          toast.info(`Researching: ${action.slice(0, 50)}...`);
+          handleChatSubmit(action);
+        } else {
+          console.log('Unknown action:', action);
+        }
     }
-  }, []);
+  }, [handleChatSubmit]);
 
   // Chat history for context
   const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
@@ -283,16 +289,16 @@ function AppContentInner() {
     }
   }, [showNarrative]);
   
-  // Handle suggestion click
+  // Handle suggestion click - execute the action query via the Orchestrator
   const handleSuggestionClick = useCallback((suggestion: Suggestion) => {
     if (suggestion.action) {
-      // Execute the suggested action
-      toast.info(`Executing: ${suggestion.message}`);
-      // TODO: Parse and execute the action
+      // Execute the suggested action by sending it to the Orchestrator
+      toast.info(`Executing: ${suggestion.message || suggestion.text || suggestion.action}`);
+      handleChatSubmit(suggestion.action);
     }
     // Remove the suggestion after clicking
     setSuggestions(prev => prev.filter(s => s !== suggestion));
-  }, []);
+  }, [handleChatSubmit]);
   
   // Add research history item
   const handleResearchHistory = useCallback((item: { query: string; source: string }) => {
