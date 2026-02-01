@@ -1,5 +1,5 @@
 /**
- * Silent Partners - Streaming API Client v5.1
+ * Silent Partners - Streaming API Client v5.2
  *
  * Handles Server-Sent Events (SSE) for real-time graph construction.
  * Uses the new smart extraction endpoints with:
@@ -8,7 +8,39 @@
  * - Centrality-based ordering
  * - Visual feedback events
  * - Context-aware extraction (uses existing graph entities)
+ * - iOS Safari compatibility (v5.2)
  */
+
+// Detect iOS Safari for streaming fallback
+const isIOSSafari = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS/.test(ua);
+  return isIOS && isSafari;
+};
+
+// Parse SSE events from text (for iOS fallback)
+const parseSSEEvents = (text: string): Array<{ type: string; [key: string]: any }> => {
+  const events: Array<{ type: string; [key: string]: any }> = [];
+  const lines = text.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      try {
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr) {
+          const event = JSON.parse(jsonStr);
+          events.push(event);
+        }
+      } catch (e) {
+        // Skip malformed events
+      }
+    }
+  }
+  
+  return events;
+};
 
 // API URLs - environment variables with validation
 const ENV_API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE;
@@ -734,9 +766,18 @@ export function streamOrchestrate(
     timeoutId = setTimeout(checkTimeout, 10000); // Check every 10 seconds
   };
   
+  const processEvent = (event: { type: string; [key: string]: any }) => {
+    lastActivityTime = Date.now();
+    handleAgentV2Event(event, callbacks, entitiesFound, relationshipsFound, toolCallCount);
+    if (event.type === 'tool_start') toolCallCount++;
+  };
+
   const runStream = async () => {
     // Start timeout checker
     timeoutId = setTimeout(checkTimeout, 10000);
+    
+    const useIOSFallback = isIOSSafari();
+    console.log(`[SSE] Starting stream, iOS fallback: ${useIOSFallback}`);
     
     try {
       // Use Agent V2 endpoint instead of legacy v6 orchestrator
@@ -772,12 +813,23 @@ export function streamOrchestrate(
         return;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        callbacks.onError?.('No response stream available', false);
+      // iOS Safari fallback: read entire response as text then parse
+      if (useIOSFallback || !response.body) {
+        console.log('[SSE] Using text() fallback');
+        const text = await response.text();
+        console.log(`[SSE] Received ${text.length} bytes`);
+        
+        const events = parseSSEEvents(text);
+        console.log(`[SSE] Parsed ${events.length} events`);
+        
+        for (const event of events) {
+          processEvent(event);
+        }
         return;
       }
 
+      // Standard streaming for other browsers
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -793,16 +845,22 @@ export function streamOrchestrate(
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              // Update activity timestamp on each event
-              lastActivityTime = Date.now();
               const event = JSON.parse(line.slice(6));
-              // Handle Agent V2 events and map to orchestrator callbacks
-              handleAgentV2Event(event, callbacks, entitiesFound, relationshipsFound, toolCallCount);
-              if (event.type === 'tool_start') toolCallCount++;
+              processEvent(event);
             } catch (e) {
               console.warn('Failed to parse agent event:', line, e);
             }
           }
+        }
+      }
+      
+      // Process any remaining buffer
+      if (buffer.startsWith('data: ')) {
+        try {
+          const event = JSON.parse(buffer.slice(6));
+          processEvent(event);
+        } catch (e) {
+          // Ignore incomplete final chunk
         }
       }
     } catch (error) {
