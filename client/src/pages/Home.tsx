@@ -10,7 +10,7 @@
  * - Escape: Deselect current selection
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { NetworkProvider, useNetwork } from '@/contexts/NetworkContext';
 import { MobileSidebarProvider } from '@/contexts/MobileSidebarContext';
 import Header from '@/components/Header';
@@ -51,6 +51,12 @@ function AppContentInner() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [researchHistory, setResearchHistory] = useState<ResearchHistoryItem[]>([]);
 
+  // Chat history for context
+  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+
+  // Store abort function for cancelling ongoing chat
+  const [abortChat, setAbortChat] = useState<(() => void) | null>(null);
+
   // Sync investigation context from network when it changes (e.g., when loading a saved graph)
   useEffect(() => {
     if (network.investigationContext) {
@@ -82,37 +88,8 @@ function AppContentInner() {
     });
   }, [addNarrativeEvent]);
 
-  // Handle action clicks from narrative - execute via Orchestrator
-  const handleNarrativeAction = useCallback((action: string) => {
-    // Parse action string like "enrich:entity_id"
-    const [actionType, ...args] = action.split(':');
-    
-    switch (actionType) {
-      case 'enrich':
-        toast.info(`Enriching entity: ${args.join(':')}`);
-        handleChatSubmit(`Enrich and find more details about ${args.join(':')}`);
-        break;
-      case 'dismiss':
-        // Just remove the suggestion
-        break;
-      default:
-        // For any other action, treat it as a research query
-        if (action && action.length > 5) {
-          toast.info(`Researching: ${action.slice(0, 50)}...`);
-          handleChatSubmit(action);
-        } else {
-          console.log('Unknown action:', action);
-        }
-    }
-  }, [handleChatSubmit]);
-
-  // Chat history for context
-  const [chatHistory, setChatHistory] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
-
-  // Store abort function for cancelling ongoing chat
-  const [abortChat, setAbortChat] = useState<(() => void) | null>(null);
-  
   // Handle chat submission - uses full Agent V2 streaming with all tools
+  // IMPORTANT: This must be defined BEFORE handleNarrativeAction and handleSuggestionClick
   const handleChatSubmit = useCallback(async (message: string) => {
     // Add user message to narrative
     addNarrativeEvent({
@@ -275,6 +252,31 @@ function AppContentInner() {
     setAbortChat(() => abort);
   }, [addNarrativeEvent, addOrMergeEntity, addOrMergeRelationship, chatHistory, network.entities, network.relationships, network.title, network.description, setNetworkTitle]);
 
+  // Handle action clicks from narrative - execute via Orchestrator
+  // IMPORTANT: This must be defined AFTER handleChatSubmit
+  const handleNarrativeAction = useCallback((action: string) => {
+    // Parse action string like "enrich:entity_id"
+    const [actionType, ...args] = action.split(':');
+    
+    switch (actionType) {
+      case 'enrich':
+        toast.info(`Enriching entity: ${args.join(':')}`);
+        handleChatSubmit(`Enrich and find more details about ${args.join(':')}`);
+        break;
+      case 'dismiss':
+        // Just remove the suggestion
+        break;
+      default:
+        // For any other action, treat it as a research query
+        if (action && action.length > 5) {
+          toast.info(`Researching: ${action.slice(0, 50)}...`);
+          handleChatSubmit(action);
+        } else {
+          console.log('Unknown action:', action);
+        }
+    }
+  }, [handleChatSubmit]);
+
   // Clear narrative events
   const handleClearEvents = useCallback(() => {
     setNarrativeEvents([]);
@@ -290,6 +292,7 @@ function AppContentInner() {
   }, [showNarrative]);
   
   // Handle suggestion click - execute the action query via the Orchestrator
+  // IMPORTANT: This must be defined AFTER handleChatSubmit
   const handleSuggestionClick = useCallback((suggestion: Suggestion) => {
     if (suggestion.action) {
       // Execute the suggested action by sending it to the Orchestrator
@@ -313,54 +316,44 @@ function AppContentInner() {
     setResearchHistory(prev => [newItem, ...prev].slice(0, 20)); // Keep last 20
   }, []);
 
-  // Update investigation context - both local state AND network state (for persistence)
-  const handleUpdateContext = useCallback((context: InvestigationContext) => {
-    // Update local state
-    setInvestigationContext(context);
-    
-    // Update network state (this will be saved with the graph)
-    updateInvestigationContext(context);
-    
-    // Add narrative event
-    addNarrativeEvent({
-      type: 'context_update',
-      title: 'Context Updated',
-      content: `Investigation focus: ${context.topic || 'Not set'}`,
-      reasoning: 'I will use this context to better understand your investigation and provide more relevant suggestions.'
-    });
-    toast.success('Investigation context updated and will be saved with the graph');
-  }, [addNarrativeEvent, updateInvestigationContext]);
+  // Update investigation context and sync to network
+  const handleUpdateContext = useCallback((newContext: InvestigationContext) => {
+    setInvestigationContext(newContext);
+    updateInvestigationContext(newContext);
+  }, [updateInvestigationContext]);
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <Header />
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex overflow-hidden">
         <Sidebar 
-          onNarrativeEvent={addNarrativeEvent}
-          setIsProcessing={setIsProcessing}
+          onAddToNarrative={addToNarrative}
+          onChatSubmit={handleChatSubmit}
         />
-        <div className="flex-1 relative flex flex-col min-w-0">
+        <main className="flex-1 relative overflow-hidden">
           <CanvasErrorBoundary>
-            <NetworkCanvas onNarrativeEvent={addToNarrative} />
+            <NetworkCanvas />
           </CanvasErrorBoundary>
-          <UndoHistoryPanel />
           
-          {/* Narrative Panel Toggle - positioned below History button */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="absolute right-4 top-14 z-10 h-8 text-xs gap-1.5 bg-card/90 hover:bg-card"
-            onClick={() => setShowNarrative(!showNarrative)}
-          >
-            <Brain className="w-3.5 h-3.5" />
-            Orchestrator
-            {showNarrative ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-          </Button>
-        </div>
+          {/* Narrative Panel Toggle */}
+          <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+            <UndoHistoryPanel />
+            <Button
+              variant={showNarrative ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowNarrative(!showNarrative)}
+              className="gap-1.5"
+            >
+              <Brain className="w-4 h-4" />
+              Orchestrator
+              {showNarrative ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+            </Button>
+          </div>
+        </main>
         
         {/* Narrative Panel */}
         {showNarrative && (
-          <div className="w-80 shrink-0 animate-in slide-in-from-right duration-200">
+          <div className="w-80 shrink-0 border-l border-border overflow-hidden">
             <NarrativePanel
               events={narrativeEvents}
               context={investigationContext}
@@ -380,16 +373,12 @@ function AppContentInner() {
   );
 }
 
-// Wrapper component that uses the keyboard shortcuts hook
-function AppContent() {
-  return <AppContentInner />;
-}
-
+// Main component with providers
 export default function Home() {
   return (
     <NetworkProvider>
       <MobileSidebarProvider>
-        <AppContent />
+        <AppContentInner />
       </MobileSidebarProvider>
     </NetworkProvider>
   );
