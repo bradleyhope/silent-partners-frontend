@@ -29,7 +29,7 @@ function App() {
           <CanvasThemeProvider>
             <TooltipProvider>
               <Toaster 
-                position="bottom-right"
+                position="top-right"
                 toastOptions={{
                   style: {
                     fontFamily: "'Source Sans 3', sans-serif",
