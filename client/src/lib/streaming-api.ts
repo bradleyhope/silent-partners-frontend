@@ -250,12 +250,26 @@ export function streamPipeline(
         return;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        callbacks.onError?.('no_stream', 'No response stream available', false);
+      // iOS Safari fallback: read entire response as text then parse
+      const useIOSFallback = isIOSSafari();
+      console.log(`[SSE Pipeline] Starting stream, iOS fallback: ${useIOSFallback}`);
+      
+      if (useIOSFallback || !response.body) {
+        console.log('[SSE Pipeline] Using text() fallback');
+        const text = await response.text();
+        console.log(`[SSE Pipeline] Received ${text.length} bytes`);
+        
+        const events = parseSSEEvents(text);
+        console.log(`[SSE Pipeline] Parsed ${events.length} events`);
+        
+        for (const event of events) {
+          handleEvent(event as PipelineEvent, callbacks);
+        }
         return;
       }
 
+      // Standard streaming for other browsers
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -338,12 +352,26 @@ export function streamResearch(
         return;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        callbacks.onError?.('no_stream', 'No response stream available', false);
+      // iOS Safari fallback: read entire response as text then parse
+      const useIOSFallback = isIOSSafari();
+      console.log(`[SSE Research] Starting stream, iOS fallback: ${useIOSFallback}`);
+      
+      if (useIOSFallback || !response.body) {
+        console.log('[SSE Research] Using text() fallback');
+        const text = await response.text();
+        console.log(`[SSE Research] Received ${text.length} bytes`);
+        
+        const events = parseSSEEvents(text);
+        console.log(`[SSE Research] Parsed ${events.length} events`);
+        
+        for (const event of events) {
+          handleEvent(event as PipelineEvent, callbacks);
+        }
         return;
       }
 
+      // Standard streaming for other browsers
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 

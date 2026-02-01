@@ -1,12 +1,44 @@
 /**
- * Silent Partners - Agent V2 Streaming API Client
+ * Silent Partners - Agent V2 Streaming API Client v5.2
  *
  * Handles Server-Sent Events (SSE) for the new tool-calling AI agent.
  * Uses the Agent v2 endpoint which:
  * - Uses Modal for serverless processing (better reliability)
  * - Has proper async support (no gevent conflicts)
  * - Includes token tracking and credit deduction
+ * - iOS Safari compatibility (v5.2)
  */
+
+// Detect iOS Safari for streaming fallback
+const isIOSSafari = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS/.test(ua);
+  return isIOS && isSafari;
+};
+
+// Parse SSE events from text (for iOS fallback)
+const parseSSEEvents = (text: string): Array<{ type: string; [key: string]: any }> => {
+  const events: Array<{ type: string; [key: string]: any }> = [];
+  const lines = text.split('\n');
+  
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      try {
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr) {
+          const event = JSON.parse(jsonStr);
+          events.push(event);
+        }
+      } catch (e) {
+        // Skip malformed events
+      }
+    }
+  }
+  
+  return events;
+};
 
 // API URLs - environment variables with validation
 const ENV_API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE;
@@ -186,12 +218,27 @@ export function streamAgentV2Chat(
         return;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        callbacks.onError?.('No response stream available', false);
+      // iOS Safari fallback: read entire response as text then parse
+      const useIOSFallback = isIOSSafari();
+      console.log(`[SSE Agent V2] Starting stream, iOS fallback: ${useIOSFallback}`);
+      
+      if (useIOSFallback || !response.body) {
+        console.log('[SSE Agent V2] Using text() fallback');
+        const text = await response.text();
+        console.log(`[SSE Agent V2] Received ${text.length} bytes`);
+        
+        const events = parseSSEEvents(text);
+        console.log(`[SSE Agent V2] Parsed ${events.length} events`);
+        
+        for (const event of events) {
+          lastActivityTime = Date.now();
+          handleAgentV2Event(event, callbacks, entitiesFound, relationshipsFound);
+        }
         return;
       }
 
+      // Standard streaming for other browsers
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -215,6 +262,16 @@ export function streamAgentV2Chat(
               console.warn('Failed to parse agent event:', line, e);
             }
           }
+        }
+      }
+      
+      // Process any remaining buffer
+      if (buffer.startsWith('data: ')) {
+        try {
+          const event = JSON.parse(buffer.slice(6));
+          handleAgentV2Event(event, callbacks, entitiesFound, relationshipsFound);
+        } catch (e) {
+          // Ignore incomplete final chunk
         }
       }
     } catch (error) {

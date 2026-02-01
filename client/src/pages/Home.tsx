@@ -7,6 +7,7 @@
  * v8.3: Full feature parity for InvestigativeAssistant
  *       Added events, suggestions, research history state management
  *       Added suggestion queue modal with pending indicator
+ * v8.5: Added left sidebar collapse toggle (matching right panel behavior)
  * 
  * Keyboard shortcuts:
  * - Ctrl+Z: Undo last action
@@ -31,7 +32,7 @@ import SuggestionQueue from '@/components/SuggestionQueue';
 import { UndoHistoryPanel } from '@/components/UndoHistoryPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
-import { Brain, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Brain, ChevronLeft, ChevronRight, X, Wrench } from 'lucide-react';
 import { Claim } from '@/lib/claims-api';
 import claimsApi from '@/lib/claims-api';
 import { toast } from 'sonner';
@@ -47,6 +48,7 @@ function AppContentInner() {
   
   // Panel states
   const [showAssistant, setShowAssistant] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSuggestionQueue, setShowSuggestionQueue] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   
@@ -133,6 +135,11 @@ function AppContentInner() {
     setShowSuggestionQueue(prev => !prev);
   }, []);
 
+  // Toggle sidebar collapse
+  const toggleSidebarCollapse = useCallback(() => {
+    setSidebarCollapsed(prev => !prev);
+  }, []);
+
   // Add a narrative event
   const addEvent = useCallback((event: Omit<NarrativeEvent, 'id' | 'timestamp'>) => {
     const newEvent: NarrativeEvent = {
@@ -192,6 +199,8 @@ function AppContentInner() {
         <Sidebar 
           pendingClaimsCount={pendingClaimsCount}
           onToggleSuggestionQueue={toggleSuggestionQueue}
+          isCollapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebarCollapse}
         />
         
         {/* Main Canvas */}
@@ -199,6 +208,22 @@ function AppContentInner() {
           <CanvasErrorBoundary>
             <NetworkCanvas />
           </CanvasErrorBoundary>
+          
+          {/* Top-left controls (when sidebar is collapsed) */}
+          {sidebarCollapsed && (
+            <div className="absolute top-2 left-2 z-10 hidden md:block">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleSidebarCollapse}
+                className="gap-1.5"
+              >
+                <Wrench className="w-4 h-4" />
+                Tools
+                <ChevronRight className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
           
           {/* Top-right controls */}
           <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
