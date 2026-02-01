@@ -288,7 +288,7 @@ export default function NarrativePanel({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Brain className="w-4 h-4 text-primary" />
-            <span className="font-medium text-sm">Narrative</span>
+            <span className="font-medium text-sm">Orchestrator</span>
           </div>
           {isProcessing && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -541,7 +541,7 @@ export default function NarrativePanel({
           <Input
             value={chatMessage}
             onChange={(e) => setChatMessage(e.target.value)}
-            placeholder="Ask about this investigation..."
+            placeholder="Research someone, find connections, analyze patterns..."
             className="h-8 text-xs"
             onKeyDown={(e) => e.key === 'Enter' && handleChatSubmit()}
           />
