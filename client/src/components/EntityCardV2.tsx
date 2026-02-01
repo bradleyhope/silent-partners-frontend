@@ -339,29 +339,51 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
     setKnowledgeGaps(gaps);
   }, [entity.description, type]);
 
-  // Position the card near the node but within viewport
+  // Position the card near the node but ALWAYS within viewport
   const [cardPosition, setCardPosition] = useState({ x: position.x, y: position.y });
   
   useEffect(() => {
-    if (cardRef.current) {
-      const rect = cardRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      
-      let x = position.x + 20;
-      let y = position.y - 20;
-      
-      if (x + rect.width > viewportWidth - 20) {
-        x = position.x - rect.width - 20;
+    // Use requestAnimationFrame to ensure DOM is rendered
+    requestAnimationFrame(() => {
+      if (cardRef.current) {
+        const rect = cardRef.current.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const cardWidth = 320; // w-80 = 20rem = 320px
+        const cardHeight = Math.min(rect.height || 400, viewportHeight * 0.8);
+        const padding = 20;
+        const headerHeight = 60; // Account for header
+        
+        let x = position.x + 20;
+        let y = position.y - 20;
+        
+        // Ensure card doesn't go off the right edge
+        if (x + cardWidth > viewportWidth - padding) {
+          x = Math.max(padding, position.x - cardWidth - 20);
+        }
+        
+        // Ensure card doesn't go off the left edge
+        if (x < padding) {
+          x = padding;
+        }
+        
+        // Ensure card doesn't go off the bottom edge
+        if (y + cardHeight > viewportHeight - padding) {
+          y = viewportHeight - cardHeight - padding;
+        }
+        
+        // Ensure card doesn't go off the top edge (below header)
+        if (y < headerHeight) {
+          y = headerHeight;
+        }
+        
+        // Final safety clamp
+        x = Math.max(padding, Math.min(x, viewportWidth - cardWidth - padding));
+        y = Math.max(headerHeight, Math.min(y, viewportHeight - cardHeight - padding));
+        
+        setCardPosition({ x, y });
       }
-      if (y + rect.height > viewportHeight - 20) {
-        y = viewportHeight - rect.height - 20;
-      }
-      if (y < 80) y = 80;
-      if (x < 300) x = 300;
-      
-      setCardPosition({ x, y });
-    }
+    });
   }, [position]);
 
   // Save entity header changes
