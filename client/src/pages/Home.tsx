@@ -4,7 +4,8 @@
  * Main application layout with sidebar, canvas, and investigative assistant.
  * Design: Archival Investigator aesthetic
  * 
- * v8.2: Replaced NarrativePanel with InvestigativeAssistant
+ * v8.3: Full feature parity for InvestigativeAssistant
+ *       Added events, suggestions, research history state management
  *       Added suggestion queue modal with pending indicator
  * 
  * Keyboard shortcuts:
@@ -20,7 +21,12 @@ import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import NetworkCanvas from '@/components/NetworkCanvas';
 import CanvasErrorBoundary from '@/components/CanvasErrorBoundary';
-import InvestigativeAssistant, { InvestigationContext } from '@/components/InvestigativeAssistant';
+import InvestigativeAssistant, { 
+  InvestigationContext, 
+  NarrativeEvent, 
+  Suggestion, 
+  ResearchHistoryItem 
+} from '@/components/InvestigativeAssistant';
 import SuggestionQueue from '@/components/SuggestionQueue';
 import { UndoHistoryPanel } from '@/components/UndoHistoryPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -29,6 +35,7 @@ import { Brain, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Claim } from '@/lib/claims-api';
 import claimsApi from '@/lib/claims-api';
 import { toast } from 'sonner';
+import { generateId } from '@/lib/store';
 
 // Inner component that has access to network context
 function AppContentInner() {
@@ -53,6 +60,15 @@ function AppContentInner() {
     focus: '',
     keyQuestions: []
   });
+
+  // Narrative events state (for "Thinking" stream)
+  const [events, setEvents] = useState<NarrativeEvent[]>([]);
+  
+  // Suggestions state (AI-generated suggestions)
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  
+  // Research history state
+  const [researchHistory, setResearchHistory] = useState<ResearchHistoryItem[]>([]);
 
   // Sync investigation context from network when it changes
   useEffect(() => {
@@ -117,6 +133,57 @@ function AppContentInner() {
     setShowSuggestionQueue(prev => !prev);
   }, []);
 
+  // Add a narrative event
+  const addEvent = useCallback((event: Omit<NarrativeEvent, 'id' | 'timestamp'>) => {
+    const newEvent: NarrativeEvent = {
+      ...event,
+      id: generateId(),
+      timestamp: new Date().toISOString(),
+    };
+    setEvents(prev => [...prev, newEvent]);
+    return newEvent;
+  }, []);
+
+  // Clear all events
+  const handleClearEvents = useCallback(() => {
+    setEvents([]);
+  }, []);
+
+  // Handle action click from events or next steps
+  const handleActionClick = useCallback((action: string) => {
+    // This could trigger a new query or perform an action
+    // For now, we'll add it as an event and let the user see it
+    addEvent({
+      type: 'user_action',
+      title: 'Action Triggered',
+      content: action,
+    });
+  }, [addEvent]);
+
+  // Handle suggestion click
+  const handleSuggestionClick = useCallback((suggestion: Suggestion) => {
+    // Remove the clicked suggestion
+    setSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
+    
+    // Add an event for the action
+    addEvent({
+      type: 'user_action',
+      title: 'Suggestion Accepted',
+      content: suggestion.text || suggestion.message || suggestion.action || '',
+    });
+  }, [addEvent]);
+
+  // Add research history item
+  const addResearchHistoryItem = useCallback((item: Omit<ResearchHistoryItem, 'id' | 'timestamp'>) => {
+    const newItem: ResearchHistoryItem = {
+      ...item,
+      id: generateId(),
+      timestamp: new Date().toISOString(),
+    };
+    setResearchHistory(prev => [newItem, ...prev].slice(0, 50)); // Keep last 50
+    return newItem;
+  }, []);
+
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <Header />
@@ -160,6 +227,12 @@ function AppContentInner() {
             onToggleSuggestionQueue={toggleSuggestionQueue}
             isProcessing={isProcessing}
             setIsProcessing={setIsProcessing}
+            events={events}
+            suggestions={suggestions}
+            researchHistory={researchHistory}
+            onActionClick={handleActionClick}
+            onClearEvents={handleClearEvents}
+            onSuggestionClick={handleSuggestionClick}
           />
         )}
         
