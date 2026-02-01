@@ -21,7 +21,9 @@ import NarrativePanel, { NarrativeEvent, InvestigationContext, Suggestion, Resea
 import { UndoHistoryPanel } from '@/components/UndoHistoryPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { Button } from '@/components/ui/button';
-import { Brain, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Brain, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
+import { Claim } from '@/lib/claims-api';
+import IQSDashboard from '@/components/IQSDashboard';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { streamOrchestrate, OrchestratorCallbacks, PipelineEntity, PipelineRelationship } from '@/lib/streaming-api';
@@ -322,13 +324,33 @@ function AppContentInner() {
     updateInvestigationContext(newContext);
   }, [updateInvestigationContext]);
 
+  // Handle claim accepted from suggestion queue - add relationship to network
+  const handleClaimAccepted = useCallback((claim: Claim) => {
+    // Add the relationship to the network
+    addOrMergeRelationship({
+      source: claim.subject_name,
+      target: claim.object_name,
+      type: claim.predicate,
+      label: claim.predicate.replace(/_/g, ' '),
+      status: 'confirmed',
+    });
+    
+    toast.success(`Added: ${claim.subject_name} ${claim.predicate.replace(/_/g, ' ')} ${claim.object_name}`);
+  }, [addOrMergeRelationship]);
+
+  // Handle claim rejected from suggestion queue
+  const handleClaimRejected = useCallback((claim: Claim) => {
+    toast.info(`Rejected claim: ${claim.subject_name} → ${claim.object_name}`);
+  }, []);
+
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <Header />
       <div className="flex-1 flex overflow-hidden">
         <Sidebar 
-          onAddToNarrative={addToNarrative}
-          onChatSubmit={handleChatSubmit}
+          onNarrativeEvent={addNarrativeEvent}
+          onClaimAccepted={handleClaimAccepted}
+          onClaimRejected={handleClaimRejected}
         />
         <main className="flex-1 relative overflow-hidden">
           <CanvasErrorBoundary>

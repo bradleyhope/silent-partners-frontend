@@ -42,7 +42,7 @@ export interface InvestigationContext {
 }
 
 export interface Network {
-  id?: string;
+  id?: number | string;
   title: string;
   description: string;
   entities: Entity[];

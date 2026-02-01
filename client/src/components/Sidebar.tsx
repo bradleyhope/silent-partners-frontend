@@ -3,12 +3,16 @@
  *
  * Main sidebar container that orchestrates panel components.
  * Design: Archival Investigator with gold accents
+ * 
+ * v8.0: Added Suggestion Queue for Investigative Companion feature
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useMobileSidebar } from '@/contexts/MobileSidebarContext';
 import { NarrativeEvent } from './NarrativePanel';
+import SuggestionQueue from './SuggestionQueue';
+import { Claim } from '@/lib/claims-api';
 import {
   NetworkPanel,
   AIInputPanel,
@@ -21,14 +25,21 @@ import {
 interface SidebarProps {
   onNarrativeEvent?: (event: Omit<NarrativeEvent, 'id' | 'timestamp'>) => void;
   setIsProcessing?: (processing: boolean) => void;
+  onClaimAccepted?: (claim: Claim) => void;
+  onClaimRejected?: (claim: Claim) => void;
 }
 
-export default function Sidebar({ onNarrativeEvent }: SidebarProps = {}) {
+export default function Sidebar({ 
+  onNarrativeEvent,
+  onClaimAccepted,
+  onClaimRejected,
+}: SidebarProps = {}) {
   const { network } = useNetwork();
   const { isOpen: mobileOpen, close: closeMobile } = useMobileSidebar();
 
   // Panel open states
   const [networkOpen, setNetworkOpen] = useState(true);
+  const [suggestionQueueOpen, setSuggestionQueueOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -51,6 +62,30 @@ export default function Sidebar({ onNarrativeEvent }: SidebarProps = {}) {
     setAiInitialQuery(query);
     setAiOpen(true);
   }, []);
+
+  // Handle claim accepted - add relationship to network
+  const handleClaimAccepted = useCallback((claim: Claim) => {
+    // Notify parent component
+    if (onClaimAccepted) {
+      onClaimAccepted(claim);
+    }
+    
+    // Add narrative event
+    if (onNarrativeEvent) {
+      onNarrativeEvent({
+        type: 'discovery',
+        title: 'Claim Accepted',
+        content: `${claim.subject_name} ${claim.predicate.replace(/_/g, ' ')} ${claim.object_name}`,
+      });
+    }
+  }, [onClaimAccepted, onNarrativeEvent]);
+
+  // Handle claim rejected
+  const handleClaimRejected = useCallback((claim: Claim) => {
+    if (onClaimRejected) {
+      onClaimRejected(claim);
+    }
+  }, [onClaimRejected]);
 
   return (
     <>
@@ -77,6 +112,17 @@ export default function Sidebar({ onNarrativeEvent }: SidebarProps = {}) {
             isOpen={networkOpen}
             onOpenChange={setNetworkOpen}
             onSelectTemplate={handleSelectTemplate}
+          />
+
+          <div className="border-t border-sidebar-border" />
+
+          {/* Suggestion Queue Section - NEW in v8.0 */}
+          <SuggestionQueue
+            graphId={typeof network.id === 'number' ? network.id : null}
+            isOpen={suggestionQueueOpen}
+            onOpenChange={setSuggestionQueueOpen}
+            onClaimAccepted={handleClaimAccepted}
+            onClaimRejected={handleClaimRejected}
           />
 
           <div className="border-t border-sidebar-border" />
