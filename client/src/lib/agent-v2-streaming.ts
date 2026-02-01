@@ -104,6 +104,7 @@ export interface AgentV2Context {
   entities?: Array<{ id: string; name: string; type: string; description?: string }>;
   relationships?: Array<{ source: string; target: string; type: string; label?: string }>;
   investigation_context?: Record<string, any>;
+  graph_id?: number | string;  // v8.1: Enable claims integration when provided
 }
 
 /**
@@ -164,6 +165,7 @@ export function streamAgentV2Chat(
           entities: context.entities || [],
           relationships: context.relationships || [],
           history: [], // Could add conversation history here
+          graph_id: context.graph_id,  // v8.1: Enable claims integration
           investigation_context: context.investigation_context || {
             title: context.topic || '',
             description: context.domain || '',
@@ -521,6 +523,7 @@ export function streamAgentV2AsOrchestrator(
     focus: context.focus,
     key_questions: context.key_questions,
     entities: context.entities,
-    relationships: context.relationships
+    relationships: context.relationships,
+    graph_id: context.graph_id  // v8.1: Enable claims integration
   }, agentCallbacks, sessionToken);
 }

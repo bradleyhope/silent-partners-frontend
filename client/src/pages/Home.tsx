@@ -122,7 +122,8 @@ function AppContentInner() {
         source: r.source,
         target: r.target,
         type: r.type || r.label || 'related'
-      }))
+      })),
+      graph_id: network.id  // v8.1: Enable claims integration when graph is saved
     };
     
     // Collect response content for chat history

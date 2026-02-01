@@ -696,7 +696,7 @@ export interface InvestigationContext {
   key_questions?: string[];
   entities?: Array<{ id: string; name: string; type: string }>;
   relationships?: Array<{ source: string; target: string; type: string }>;
-  graph_id?: number;  // NEW: For research memory
+  graph_id?: number | string;  // v8.1: Enable claims integration when graph is saved
 }
 
 /**
@@ -751,6 +751,7 @@ export function streamOrchestrate(
           entities: context.entities || [],
           relationships: context.relationships || [],
           history: [],
+          graph_id: context.graph_id,  // v8.1: Enable claims integration
           investigation_context: {
             title: context.topic || '',
             description: context.domain || '',
