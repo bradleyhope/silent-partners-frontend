@@ -410,29 +410,9 @@ export default function SuggestionQueue({
     }
   };
 
-  return (
-    <Collapsible open={isOpen} onOpenChange={onOpenChange}>
-      <CollapsibleTrigger asChild>
-        <button className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-sidebar-accent/50 transition-colors">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-amber-600" />
-            <span className="font-medium text-sm">Suggestion Queue</span>
-            {totalPending > 0 && (
-              <Badge variant="secondary" className="ml-1 bg-amber-100 text-amber-800">
-                {totalPending}
-              </Badge>
-            )}
-          </div>
-          {isOpen ? (
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          )}
-        </button>
-      </CollapsibleTrigger>
-      
-      <CollapsibleContent>
-        <div className="px-4 pb-4">
+  // Render content (shared between collapsible and standalone modes)
+  const renderContent = () => (
+    <div className="px-4 pb-4">
           {/* IQS Display */}
           <IQSDisplay iqs={iqs} isLoading={isLoadingIQS} />
           
@@ -522,7 +502,34 @@ export default function SuggestionQueue({
               Load more ({totalPending - claims.length} remaining)
             </Button>
           )}
-        </div>
+    </div>
+  );
+
+  // If used as standalone (e.g., in modal), just render content
+  // The Collapsible wrapper is only used when embedded in sidebar
+  return (
+    <Collapsible open={isOpen} onOpenChange={onOpenChange}>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center justify-between w-full px-4 py-3 text-left hover:bg-sidebar-accent/50 transition-colors">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-amber-600" />
+            <span className="font-medium text-sm">Suggestion Queue</span>
+            {totalPending > 0 && (
+              <Badge variant="secondary" className="ml-1 bg-amber-100 text-amber-800">
+                {totalPending}
+              </Badge>
+            )}
+          </div>
+          {isOpen ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+      </CollapsibleTrigger>
+      
+      <CollapsibleContent>
+        {renderContent()}
       </CollapsibleContent>
     </Collapsible>
   );

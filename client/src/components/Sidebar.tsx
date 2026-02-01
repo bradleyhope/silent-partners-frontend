@@ -1,21 +1,20 @@
 /**
- * Silent Partners - Sidebar
+ * Silent Partners - Sidebar (Left Toolbar)
  *
- * Main sidebar container that orchestrates panel components.
+ * Tool palette for manual editing and graph operations.
  * Design: Archival Investigator with gold accents
  * 
- * v8.0: Added Suggestion Queue for Investigative Companion feature
+ * v8.2: Removed AI panel (moved to dedicated chat panel on right)
+ *       Added pending claims indicator badge
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useMobileSidebar } from '@/contexts/MobileSidebarContext';
 import { NarrativeEvent } from './NarrativePanel';
-import SuggestionQueue from './SuggestionQueue';
 import { Claim } from '@/lib/claims-api';
 import {
   NetworkPanel,
-  AIInputPanel,
   ManualEntryPanel,
   ToolsPanel,
   SearchPanel,
@@ -27,27 +26,26 @@ interface SidebarProps {
   setIsProcessing?: (processing: boolean) => void;
   onClaimAccepted?: (claim: Claim) => void;
   onClaimRejected?: (claim: Claim) => void;
+  pendingClaimsCount?: number;
+  onToggleSuggestionQueue?: () => void;
 }
 
 export default function Sidebar({ 
   onNarrativeEvent,
   onClaimAccepted,
   onClaimRejected,
+  pendingClaimsCount = 0,
+  onToggleSuggestionQueue,
 }: SidebarProps = {}) {
   const { network } = useNetwork();
   const { isOpen: mobileOpen, close: closeMobile } = useMobileSidebar();
 
   // Panel open states
   const [networkOpen, setNetworkOpen] = useState(true);
-  const [suggestionQueueOpen, setSuggestionQueueOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
-
-  // AI input state for template loading
-  const [aiInitialQuery, setAiInitialQuery] = useState('');
 
   // Close mobile sidebar when selecting an entity or loading a network
   useEffect(() => {
@@ -56,36 +54,6 @@ export default function Sidebar({
       return () => clearTimeout(timer);
     }
   }, [network.entities.length, mobileOpen, closeMobile]);
-
-  // Handle template selection from NetworkPanel
-  const handleSelectTemplate = useCallback((query: string) => {
-    setAiInitialQuery(query);
-    setAiOpen(true);
-  }, []);
-
-  // Handle claim accepted - add relationship to network
-  const handleClaimAccepted = useCallback((claim: Claim) => {
-    // Notify parent component
-    if (onClaimAccepted) {
-      onClaimAccepted(claim);
-    }
-    
-    // Add narrative event
-    if (onNarrativeEvent) {
-      onNarrativeEvent({
-        type: 'discovery',
-        title: 'Claim Accepted',
-        content: `${claim.subject_name} ${claim.predicate.replace(/_/g, ' ')} ${claim.object_name}`,
-      });
-    }
-  }, [onClaimAccepted, onNarrativeEvent]);
-
-  // Handle claim rejected
-  const handleClaimRejected = useCallback((claim: Claim) => {
-    if (onClaimRejected) {
-      onClaimRejected(claim);
-    }
-  }, [onClaimRejected]);
 
   return (
     <>
@@ -111,28 +79,6 @@ export default function Sidebar({
           <NetworkPanel
             isOpen={networkOpen}
             onOpenChange={setNetworkOpen}
-            onSelectTemplate={handleSelectTemplate}
-          />
-
-          <div className="border-t border-sidebar-border" />
-
-          {/* Suggestion Queue Section - NEW in v8.0 */}
-          <SuggestionQueue
-            graphId={typeof network.id === 'number' ? network.id : null}
-            isOpen={suggestionQueueOpen}
-            onOpenChange={setSuggestionQueueOpen}
-            onClaimAccepted={handleClaimAccepted}
-            onClaimRejected={handleClaimRejected}
-          />
-
-          <div className="border-t border-sidebar-border" />
-
-          {/* AI Input Section */}
-          <AIInputPanel
-            isOpen={aiOpen}
-            onOpenChange={setAiOpen}
-            onNarrativeEvent={onNarrativeEvent}
-            initialQuery={aiInitialQuery}
           />
 
           <div className="border-t border-sidebar-border" />
@@ -157,10 +103,28 @@ export default function Sidebar({
         </div>
         {/* End scrollable content area */}
 
-        {/* Footer stats */}
+        {/* Footer with stats and pending claims indicator */}
         <div className="px-4 py-3 border-t border-sidebar-border bg-sidebar-accent/30">
-          <div className="text-[10px] font-mono text-muted-foreground">
-            {network.entities.length} entities · {network.relationships.length} connections
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] font-mono text-muted-foreground">
+              {network.entities.length} entities · {network.relationships.length} connections
+            </div>
+            {/* Pending claims indicator */}
+            {pendingClaimsCount > 0 && onToggleSuggestionQueue && (
+              <button
+                onClick={onToggleSuggestionQueue}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 transition-colors"
+                title={`${pendingClaimsCount} pending suggestions`}
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </span>
+                <span className="text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                  {pendingClaimsCount}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </aside>
