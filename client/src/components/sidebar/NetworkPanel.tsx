@@ -4,14 +4,14 @@
  * Network info, save/share/export, investigation templates, and graph tools.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronDown, Loader2, Download, Share2, Save, RotateCcw, RefreshCw, Wand2 } from 'lucide-react';
+import { ChevronDown, Loader2, Download, Upload, Share2, Save, RotateCcw, RefreshCw, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -39,6 +39,7 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
   const [isNormalizing, setIsNormalizing] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Load example network from pre-built data or template
   const handleLoadExample = useCallback(
@@ -303,6 +304,103 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
     toast.success('Network exported as JSON');
     setShowExportMenu(false);
   }, [network]);
+
+  // Import JSON - triggers file input click
+  const handleImportClick = useCallback(() => {
+    importInputRef.current?.click();
+    setShowExportMenu(false);
+  }, []);
+
+  // Handle imported JSON file
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      // Validate basic structure
+      if (!Array.isArray(data.entities) || !Array.isArray(data.relationships)) {
+        toast.error('Invalid JSON format', {
+          description: 'File must contain "entities" and "relationships" arrays',
+        });
+        return;
+      }
+
+      // Ask user whether to merge or replace
+      const hasExisting = network.entities.length > 0;
+      if (hasExisting) {
+        // For now, just merge - the FileDropZone handles the dialog
+        // This is a simpler path for the button
+        const confirmed = window.confirm(
+          `Import ${data.entities.length} entities and ${data.relationships.length} relationships?\n\n` +
+          `Choose OK to ADD to your current network, or Cancel to abort.\n` +
+          `(Tip: Drag-drop a JSON file onto the canvas for more options)`
+        );
+        if (!confirmed) return;
+      }
+
+      // Set title/description if provided and network is empty
+      if (!hasExisting) {
+        if (data.title) dispatch({ type: 'SET_TITLE', payload: data.title });
+        if (data.description) dispatch({ type: 'SET_DESCRIPTION', payload: data.description });
+      }
+
+      // Map IDs to avoid conflicts
+      const existingIds = new Set(network.entities.map(e => e.id));
+      const existingNames = new Set(network.entities.map(e => e.name.toLowerCase()));
+      const idMapping = new Map<string, string>();
+
+      // Add entities
+      const newEntities: Entity[] = [];
+      for (const entity of data.entities) {
+        if (existingNames.has(entity.name?.toLowerCase())) continue; // Skip duplicates
+        
+        let newId = entity.id || generateId();
+        if (existingIds.has(newId)) {
+          newId = generateId();
+        }
+        idMapping.set(entity.id, newId);
+        
+        newEntities.push({
+          id: newId,
+          name: entity.name,
+          type: entity.type || 'unknown',
+          description: entity.description,
+          importance: entity.importance || 5,
+          source_type: 'manual',
+        });
+      }
+
+      // Add relationships
+      const newRelationships: Relationship[] = [];
+      for (const rel of data.relationships) {
+        const sourceId = idMapping.get(rel.source) || rel.source;
+        const targetId = idMapping.get(rel.target) || rel.target;
+        
+        newRelationships.push({
+          id: rel.id || generateId(),
+          source: sourceId,
+          target: targetId,
+          type: rel.type,
+          label: rel.label,
+          status: rel.status || 'confirmed',
+        });
+      }
+
+      addEntitiesAndRelationships(newEntities, newRelationships);
+      toast.success(`Imported ${newEntities.length} entities and ${newRelationships.length} relationships`);
+    } catch (error) {
+      console.error('Import error:', error);
+      toast.error('Failed to import JSON', {
+        description: error instanceof Error ? error.message : 'Invalid JSON file',
+      });
+    } finally {
+      // Reset input so same file can be selected again
+      if (importInputRef.current) importInputRef.current.value = '';
+    }
+  }, [network, dispatch, addEntitiesAndRelationships]);
 
   const handleExportSvg = useCallback(() => {
     const container = document.querySelector('#network-canvas');
@@ -701,6 +799,13 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
                   >
                     Export JSON
                   </button>
+                  <button
+                    onClick={handleImportClick}
+                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors flex items-center gap-1"
+                  >
+                    <Upload className="w-3 h-3" />
+                    Import JSON
+                  </button>
                 </div>
               )}
             </div>
@@ -752,6 +857,15 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
 
       {/* Export Modal */}
       <ExportModal open={showExportModal} onOpenChange={setShowExportModal} />
+
+      {/* Hidden file input for JSON import */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleImportFile}
+        className="hidden"
+      />
     </>
   );
 }
