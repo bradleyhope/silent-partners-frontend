@@ -435,10 +435,14 @@ function networkReducer(state: NetworkState, action: NetworkAction): NetworkStat
       return { ...state, error: action.payload };
     
     case 'UPDATE_INVESTIGATION_CONTEXT':
+      // Also update network title/description if provided in context (UX-05: Auto-populate title)
       return {
         ...state,
         network: {
           ...state.network,
+          // Auto-populate title/description from orchestrator context_update
+          title: action.payload.title || state.network.title,
+          description: action.payload.description || state.network.description,
           investigationContext: action.payload
         }
       };

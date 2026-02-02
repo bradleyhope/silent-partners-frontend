@@ -699,15 +699,20 @@ export default function InvestigativeAssistant({
         toast.error('Research failed. Please try again.');
       },
       onContextUpdate: (update) => {
-        // Update investigation context
-        if (update.title || update.description || update.key_findings || update.red_flags || update.next_steps) {
+        // Update investigation context with auto-generated metadata
+        if (update.title || update.description || update.topic || update.domain || update.focus || update.key_findings || update.red_flags || update.next_steps) {
           onUpdateContext({
             ...context,
-            topic: update.title || context.topic,
-            domain: update.description || context.domain,
-            key_findings: update.key_findings,
-            red_flags: update.red_flags,
-            next_steps: update.next_steps,
+            // Auto-populate title and description from orchestrator
+            title: update.title || context.title,
+            description: update.description || context.description,
+            // Update investigation context fields
+            topic: update.topic || context.topic,
+            domain: update.domain || context.domain,
+            focus: update.focus || context.focus,
+            key_findings: update.key_findings || context.key_findings,
+            red_flags: update.red_flags || context.red_flags,
+            next_steps: update.next_steps || context.next_steps,
           });
         }
       },

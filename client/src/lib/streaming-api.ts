@@ -742,6 +742,9 @@ export interface OrchestratorCallbacks {
   onContextUpdate?: (context: {
     title?: string;
     description?: string;
+    topic?: string;
+    domain?: string;
+    focus?: string;
     key_findings?: string[];
     red_flags?: Array<{description: string; severity: string; entities_involved?: string[]}>;
     next_steps?: Array<{suggestion: string; reasoning: string; priority?: string; action_query: string}>;
@@ -1062,13 +1065,18 @@ function handleAgentV2Event(
       
     case 'context_update':
       // Emit context update with investigation metadata
-      if (event.context) {
+      // Handle both event.data (from orchestrator) and event.context (from agent v2)
+      const contextData = event.data || event.context;
+      if (contextData) {
         callbacks.onContextUpdate?.({
-          title: event.context.title,
-          description: event.context.description,
-          key_findings: event.context.key_findings,
-          red_flags: event.context.red_flags,
-          next_steps: event.context.next_steps,
+          title: contextData.title,
+          description: contextData.description,
+          topic: contextData.topic,
+          domain: contextData.domain,
+          focus: contextData.focus,
+          key_findings: contextData.key_findings,
+          red_flags: contextData.red_flags,
+          next_steps: contextData.next_steps,
           update_type: event.update_type
         });
       }
