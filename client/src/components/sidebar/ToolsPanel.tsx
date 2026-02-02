@@ -6,12 +6,17 @@
  * v9.0: AI actions now route through orchestrator for unified handling
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ChevronDown, Loader2, Trash2, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+  ChevronDown, Loader2, Trash2, RefreshCw, Sparkles, Wand2,
+  Crown, DollarSign, Network, Search, Building, Users
+} from 'lucide-react';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useOrchestrator } from '@/contexts/OrchestratorContext';
 
@@ -26,6 +31,41 @@ export default function ToolsPanel({ isOpen, onOpenChange }: ToolsPanelProps) {
 
   const [isRemovingOrphans, setIsRemovingOrphans] = useState(false);
   const [toolPrompt, setToolPrompt] = useState('');
+  
+  // F-02: Investigation Flows state
+  const [investigationFlows, setInvestigationFlows] = useState<Array<{
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    suggested_for: string[];
+    step_count: number;
+  }>>([]);
+  const [selectedFlow, setSelectedFlow] = useState<string>('');
+  const [selectedEntity, setSelectedEntity] = useState<string>('');
+  const [isLoadingFlows, setIsLoadingFlows] = useState(false);
+
+  // Load investigation flows on mount
+  useEffect(() => {
+    const loadFlows = async () => {
+      try {
+        const result = await api.getInvestigationFlows();
+        setInvestigationFlows(result.flows);
+      } catch (error) {
+        console.error('Failed to load investigation flows:', error);
+      }
+    };
+    loadFlows();
+  }, []);
+
+  // Get icon component for flow
+  const getFlowIcon = (iconName: string) => {
+    const icons: Record<string, any> = {
+      Crown, DollarSign, Network, Search, Building, Users
+    };
+    const Icon = icons[iconName] || Sparkles;
+    return <Icon className="w-3.5 h-3.5" />;
+  };
 
   // Count orphan nodes
   const orphanCount = useMemo(() => {
@@ -113,6 +153,40 @@ export default function ToolsPanel({ isOpen, onOpenChange }: ToolsPanelProps) {
     });
   }, [toolPrompt, sendAction]);
 
+  // F-02: Run investigation flow
+  const handleRunInvestigationFlow = useCallback(async () => {
+    if (!selectedFlow || !selectedEntity) {
+      toast.error('Please select a flow and entity');
+      return;
+    }
+
+    setIsLoadingFlows(true);
+    try {
+      const flowData = await api.getFlowQueries(selectedFlow, selectedEntity);
+      
+      // Build a comprehensive prompt from the flow steps
+      const flowPrompt = `Run a ${flowData.flow_name} investigation on ${selectedEntity}. 
+
+Follow these research steps:
+${flowData.steps.map((s, i) => `${i + 1}. ${s.goal}`).join('\n')}
+
+For each step, search for relevant information and extract entities and relationships.`;
+
+      sendAction('chat', {
+        message: flowPrompt
+      });
+      
+      toast.info(`Starting ${flowData.flow_name}...`, {
+        description: `Investigating ${selectedEntity}`
+      });
+    } catch (error) {
+      toast.error('Failed to start investigation flow');
+      console.error(error);
+    } finally {
+      setIsLoadingFlows(false);
+    }
+  }, [selectedFlow, selectedEntity, sendAction]);
+
   return (
     <Collapsible open={isOpen} onOpenChange={onOpenChange}>
       <CollapsibleTrigger asChild>
@@ -194,8 +268,67 @@ export default function ToolsPanel({ isOpen, onOpenChange }: ToolsPanelProps) {
           </p>
         </div>
 
+        {/* F-02: Investigation Flows */}
+        {investigationFlows.length > 0 && (
+          <div className="space-y-2 pt-2 border-t border-border/50">
+            <label className="text-xs font-medium flex items-center gap-1">
+              <Crown className="w-3 h-3" />
+              Investigation Flows
+            </label>
+            <Select value={selectedFlow} onValueChange={setSelectedFlow}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Select a flow..." />
+              </SelectTrigger>
+              <SelectContent>
+                {investigationFlows.map((flow) => (
+                  <SelectItem key={flow.id} value={flow.id} className="text-xs">
+                    <div className="flex items-center gap-2">
+                      {getFlowIcon(flow.icon)}
+                      <span>{flow.name}</span>
+                      <span className="text-muted-foreground">({flow.step_count} steps)</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedFlow && (
+              <>
+                <p className="text-[10px] text-muted-foreground">
+                  {investigationFlows.find(f => f.id === selectedFlow)?.description}
+                </p>
+                <Select value={selectedEntity} onValueChange={setSelectedEntity}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select entity to investigate..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {network.entities.map((entity) => (
+                      <SelectItem key={entity.id} value={entity.name} className="text-xs">
+                        {entity.name} ({entity.type})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="w-full text-xs h-8"
+                  onClick={handleRunInvestigationFlow}
+                  disabled={orchestratorProcessing || isLoadingFlows || !selectedEntity}
+                >
+                  {(orchestratorProcessing || isLoadingFlows) ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                  ) : (
+                    getFlowIcon(investigationFlows.find(f => f.id === selectedFlow)?.icon || 'Search')
+                  )}
+                  <span className="ml-2">Run Investigation</span>
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Custom Prompt - Routes through orchestrator */}
-        <div className="space-y-2">
+        <div className="space-y-2 pt-2 border-t border-border/50">
           <label className="text-xs font-medium">Custom AI Request</label>
           <Textarea
             value={toolPrompt}

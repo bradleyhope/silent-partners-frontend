@@ -590,6 +590,39 @@ class ApiClient {
       timeout: 180000, // 3 minutes for article processing
     });
   }
+
+  // F-02: Get available investigation flow templates
+  async getInvestigationFlows(): Promise<{
+    flows: Array<{
+      id: string;
+      name: string;
+      description: string;
+      icon: string;
+      suggested_for: string[];
+      step_count: number;
+    }>;
+  }> {
+    return this.request('/ai/investigation-flows');
+  }
+
+  // F-02: Generate queries for an investigation flow
+  async getFlowQueries(flowId: string, entityName: string): Promise<{
+    flow_id: string;
+    flow_name: string;
+    entity: string;
+    steps: Array<{
+      step: number;
+      goal: string;
+      queries: string[];
+      entity_types: string[];
+      relationship_types: string[];
+    }>;
+  }> {
+    return this.request(`/ai/investigation-flows/${flowId}/queries`, {
+      method: 'POST',
+      body: JSON.stringify({ entity_name: entityName }),
+    });
+  }
 }
 export const api = new ApiClient();
 export default api;
