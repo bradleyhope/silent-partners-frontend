@@ -97,7 +97,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [notes, setNotes] = useState('');
-  const [showLabels, setShowLabels] = useState(true);
+  // Labels are always shown (matching original working version)
   const [showLegend, setShowLegend] = useState(true);
   const [showWatermark, setShowWatermark] = useState(true);
   const [isRendering, setIsRendering] = useState(false);
@@ -454,19 +454,18 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         ctx.fill();
       }
       
-      // ALWAYS draw node labels with text stroke for readability (key fix from original)
-      if (showLabels) {
-        const fontSize = 12 * scale;
-        ctx.font = `${fontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
-        ctx.fillStyle = colors.text;
-        ctx.textAlign = 'center';
-        
-        // Text stroke for better readability (from original)
-        ctx.strokeStyle = colors.background;
-        ctx.lineWidth = 3 * scale;
-        ctx.strokeText(node.name, x, y + radius + fontSize + 4);
-        ctx.fillText(node.name, x, y + radius + fontSize + 4);
-      }
+      // ALWAYS draw node labels with text stroke for readability (from original working version)
+      // Labels are drawn unconditionally - this matches the original behavior
+      const fontSize = 12 * scale;
+      ctx.font = `${fontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
+      ctx.fillStyle = colors.text;
+      ctx.textAlign = 'center';
+      
+      // Text stroke for better readability (from original)
+      ctx.strokeStyle = colors.background;
+      ctx.lineWidth = 3 * scale;
+      ctx.strokeText(node.name, x, y + 22 * scale);  // Match original positioning
+      ctx.fillText(node.name, x, y + 22 * scale);
     });
     
     // Draw notes at bottom if provided
@@ -573,7 +572,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.textAlign = 'center';
       ctx.fillText('Created with SilentPartners.app — A Brazen Production', width / 2, height * 0.97);
     }
-  }, [optimizedNodes, optimizedLinks, format, title, subtitle, notes, showLabels, showLegend, showWatermark, getNetworkBounds]);
+  }, [optimizedNodes, optimizedLinks, format, title, subtitle, notes, showLegend, showWatermark, getNetworkBounds]);
 
   // Re-render when options change
   useEffect(() => {
@@ -677,15 +676,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
             </div>
             
             <div className="space-y-2">
-              <Label>Display Options</Label>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="show-labels"
-                  checked={showLabels}
-                  onCheckedChange={(checked) => setShowLabels(checked === true)}
-                />
-                <label htmlFor="show-labels" className="text-sm">Show Labels</label>
-              </div>
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-legend"
