@@ -1,14 +1,14 @@
 /**
  * Export Modal for Silent Partners
- * Creates high-quality poster-style artwork exports that MATCH the live graph view
+ * Creates high-quality exports that EXACTLY match the live graph view
  * 
  * Key features:
- * - Captures actual node positions from the live SVG (no re-simulation)
- * - Exports look identical to what you see on screen
- * - High-resolution canvas rendering
- * - Lombardi-style curved lines and typography
+ * - Captures actual node positions from the live SVG
+ * - Uses the same theme config as the live graph
+ * - Same node sizes, colors, fonts - just scaled to fit export format
+ * - No re-simulation, no reformatting - what you see is what you get
  * 
- * Updated 2026-02-02: Fixed to capture live graph state instead of re-optimizing
+ * Updated 2026-02-02: Fixed to exactly match live graph appearance
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -22,7 +22,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Download, Copy, RefreshCw, Loader2 } from 'lucide-react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
-import { entityColors } from '@/lib/store';
 import { toast } from 'sonner';
 
 interface ExportFormat {
@@ -42,40 +41,28 @@ const EXPORT_FORMATS: Record<string, ExportFormat> = {
   '8k': { width: 7680, height: 4320, label: '8K Ultra HD (7680×4320)' },
 };
 
-// Lombardi color palette - matching our app's style
-const LOMBARDI_COLORS = {
-  background: '#F9F6EE',  // Warm cream background
-  text: '#2A2A2A',        // Dark charcoal text
-  textLight: '#666666',   // Lighter text for subtitles
-  lines: {
-    confirmed: 'rgba(26, 26, 26, 0.85)',
-    suspected: 'rgba(26, 26, 26, 0.4)',
-    former: 'rgba(26, 26, 26, 0.25)',
-  },
-  nodes: {
-    person: 'rgba(249, 246, 238, 0.6)',
-    corporation: 'rgba(245, 245, 245, 0.6)',
-    government: 'rgba(240, 234, 214, 0.6)',
-    financial: 'rgba(255, 250, 240, 0.6)',
-    organization: 'rgba(248, 248, 255, 0.6)',
-  }
-};
-
-interface ExportNode {
+interface CapturedNode {
   id: string;
   name: string;
   type: string;
-  importance?: number;
   x: number;
   y: number;
+  radius: number;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  isHollow: boolean;
 }
 
-interface ExportLink {
-  source: string | ExportNode;
-  target: string | ExportNode;
-  type?: string;
-  label?: string;
-  status?: string;
+interface CapturedLink {
+  sourceX: number;
+  sourceY: number;
+  targetX: number;
+  targetY: number;
+  stroke: string;
+  strokeWidth: number;
+  strokeDasharray: string;
+  pathData: string;
 }
 
 interface ExportModalProps {
@@ -85,7 +72,7 @@ interface ExportModalProps {
 
 export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const { network } = useNetwork();
-  const { theme, config: themeConfig } = useCanvasTheme();
+  const { theme, config: themeConfig, getEntityColor } = useCanvasTheme();
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [format, setFormat] = useState('print-portrait');
@@ -96,9 +83,10 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [showWatermark, setShowWatermark] = useState(true);
   const [isRendering, setIsRendering] = useState(false);
   
-  // Captured node positions from live graph
-  const [capturedNodes, setCapturedNodes] = useState<ExportNode[]>([]);
-  const [capturedLinks, setCapturedLinks] = useState<ExportLink[]>([]);
+  // Captured graph state from live SVG
+  const [capturedNodes, setCapturedNodes] = useState<CapturedNode[]>([]);
+  const [capturedLinks, setCapturedLinks] = useState<CapturedLink[]>([]);
+  const [graphBounds, setGraphBounds] = useState({ minX: 0, minY: 0, maxX: 800, maxY: 600 });
 
   // Initialize from network
   useEffect(() => {
@@ -108,7 +96,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, network.title, network.description]);
 
-  // Capture live graph positions from the SVG DOM
+  // Capture the live graph exactly as it appears
   const captureLiveGraph = useCallback(() => {
     if (network.entities.length === 0) return;
     
@@ -122,81 +110,101 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       return;
     }
     
-    // Get all node containers and extract their positions
-    const nodeContainers = svg.querySelectorAll('g.node');
-    const nodePositions = new Map<string, { x: number; y: number }>();
+    // Get the transform group to account for zoom/pan
+    const canvasContent = svg.querySelector('g.canvas-content');
     
-    nodeContainers.forEach((container) => {
-      const transform = container.getAttribute('transform');
-      if (transform) {
-        // Parse transform="translate(x,y) scale(1)"
-        const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
-        if (match) {
-          const x = parseFloat(match[1]);
-          const y = parseFloat(match[2]);
-          
-          // Get entity ID from the node
-          const entityId = container.getAttribute('data-entity-id');
-          if (entityId) {
-            nodePositions.set(entityId, { x, y });
-          }
-        }
+    // Capture all nodes with their exact visual properties
+    const nodes: CapturedNode[] = [];
+    const nodeElements = svg.querySelectorAll('g.node');
+    
+    nodeElements.forEach((nodeEl) => {
+      const transform = nodeEl.getAttribute('transform');
+      if (!transform) return;
+      
+      const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
+      if (!match) return;
+      
+      const x = parseFloat(match[1]);
+      const y = parseFloat(match[2]);
+      
+      const entityId = nodeEl.getAttribute('data-entity-id');
+      const entity = network.entities.find(e => e.id === entityId);
+      if (!entity) return;
+      
+      // Get the circle element to capture exact visual properties
+      const circle = nodeEl.querySelector('circle.node-circle');
+      if (!circle) return;
+      
+      const radius = parseFloat(circle.getAttribute('r') || '8');
+      const fill = circle.getAttribute('fill') || themeConfig.nodeFill;
+      const stroke = circle.getAttribute('stroke') || themeConfig.nodeStroke;
+      const strokeWidth = parseFloat(circle.getAttribute('stroke-width') || '1.5');
+      
+      // Determine if hollow based on fill matching background
+      const isHollow = fill === themeConfig.background || fill === themeConfig.nodeFill;
+      
+      nodes.push({
+        id: entity.id,
+        name: entity.name,
+        type: entity.type,
+        x,
+        y,
+        radius,
+        fill,
+        stroke,
+        strokeWidth,
+        isHollow,
+      });
+    });
+    
+    // Capture all links with their exact visual properties
+    const links: CapturedLink[] = [];
+    const linkElements = svg.querySelectorAll('path.link-path');
+    
+    linkElements.forEach((linkEl) => {
+      const pathData = linkEl.getAttribute('d') || '';
+      const stroke = linkEl.getAttribute('stroke') || themeConfig.linkStroke;
+      const strokeWidth = parseFloat(linkEl.getAttribute('stroke-width') || '1.5');
+      const strokeDasharray = linkEl.getAttribute('stroke-dasharray') || 'none';
+      
+      // Parse path to get source and target coordinates
+      // Path format: M sx,sy Q cx,cy tx,ty or M sx,sy L tx,ty
+      const moveMatch = pathData.match(/M\s*([\d.-]+)[,\s]+([\d.-]+)/);
+      let targetMatch = pathData.match(/[QL]\s*[\d.-]+[,\s]+[\d.-]+[,\s]*([\d.-]+)[,\s]+([\d.-]+)/);
+      if (!targetMatch) {
+        targetMatch = pathData.match(/L\s*([\d.-]+)[,\s]+([\d.-]+)/);
+      }
+      
+      if (moveMatch && targetMatch) {
+        links.push({
+          sourceX: parseFloat(moveMatch[1]),
+          sourceY: parseFloat(moveMatch[2]),
+          targetX: parseFloat(targetMatch[1]),
+          targetY: parseFloat(targetMatch[2]),
+          stroke,
+          strokeWidth,
+          strokeDasharray,
+          pathData,
+        });
       }
     });
     
-    // If we couldn't get positions from data-entity-id, try matching by name
-    if (nodePositions.size === 0) {
-      // Alternative: match by text content
-      nodeContainers.forEach((container) => {
-        const transform = container.getAttribute('transform');
-        const textEl = container.querySelector('text');
-        if (transform && textEl) {
-          const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
-          if (match) {
-            const x = parseFloat(match[1]);
-            const y = parseFloat(match[2]);
-            const name = textEl.textContent?.trim();
-            
-            // Find matching entity by name
-            const entity = network.entities.find(e => e.name === name);
-            if (entity) {
-              nodePositions.set(entity.id, { x, y });
-            }
-          }
-        }
+    // Calculate bounds from captured nodes
+    if (nodes.length > 0) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      nodes.forEach(n => {
+        minX = Math.min(minX, n.x - n.radius - 50);
+        minY = Math.min(minY, n.y - n.radius - 30);
+        maxX = Math.max(maxX, n.x + n.radius + 50);
+        maxY = Math.max(maxY, n.y + n.radius + 30);
       });
+      setGraphBounds({ minX, minY, maxX, maxY });
     }
-    
-    // Build nodes with captured positions
-    const nodes: ExportNode[] = network.entities.map((e, i) => {
-      const pos = nodePositions.get(e.id);
-      return {
-        id: e.id,
-        name: e.name,
-        type: e.type,
-        importance: e.importance || 0.5,
-        // Use captured position, or fall back to entity's stored position, or default
-        x: pos?.x ?? e.x ?? 400 + (i % 5) * 100,
-        y: pos?.y ?? e.y ?? 300 + Math.floor(i / 5) * 100,
-      };
-    });
-    
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-    
-    const links: ExportLink[] = network.relationships
-      .filter(r => nodeMap.has(r.source) && nodeMap.has(r.target))
-      .map(r => ({
-        source: nodeMap.get(r.source)!,
-        target: nodeMap.get(r.target)!,
-        type: r.type,
-        label: r.label,
-        status: r.status,
-      }));
     
     setCapturedNodes(nodes);
     setCapturedLinks(links);
     setIsRendering(false);
-  }, [network]);
+  }, [network, themeConfig]);
 
   // Capture live graph when modal opens
   useEffect(() => {
@@ -205,38 +213,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, captureLiveGraph]);
 
-  // Get network bounds for scaling
-  const getNetworkBounds = useCallback((nodes: ExportNode[]) => {
-    if (nodes.length === 0) {
-      return { minX: 0, minY: 0, width: 100, height: 100 };
-    }
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    nodes.forEach(node => {
-      const radius = 5 + (node.importance || 0.5) * 10;
-      minX = Math.min(minX, node.x - radius);
-      minY = Math.min(minY, node.y - radius);
-      maxX = Math.max(maxX, node.x + radius);
-      maxY = Math.max(maxY, node.y + radius);
-    });
-
-    // Add space for labels
-    minY = Math.min(minY, minY - 30);
-    maxY = Math.max(maxY, maxY + 40);
-
-    return {
-      minX,
-      minY,
-      width: maxX - minX,
-      height: maxY - minY
-    };
-  }, []);
-
-  // Render canvas with captured positions
+  // Render canvas matching the live graph exactly
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || capturedNodes.length === 0) return;
@@ -248,219 +225,56 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const width = formatConfig.width;
     const height = formatConfig.height;
     
-    // Set canvas dimensions
     canvas.width = width;
     canvas.height = height;
     
-    const colors = LOMBARDI_COLORS;
-    
-    // Fill background
-    ctx.fillStyle = colors.background;
+    // Use the actual theme background
+    ctx.fillStyle = themeConfig.background;
     ctx.fillRect(0, 0, width, height);
     
-    // Get network bounds for scaling
-    const bounds = getNetworkBounds(capturedNodes);
+    // Calculate scale to fit the captured graph
+    const graphWidth = graphBounds.maxX - graphBounds.minX;
+    const graphHeight = graphBounds.maxY - graphBounds.minY;
     
-    // Calculate scale to fit network with proper padding
-    const padding = 0.08;
+    // Leave room for title at top and legend at bottom
+    const availableHeight = height * 0.75;
+    const availableWidth = width * 0.9;
+    const topMargin = height * 0.15;
+    
     const scale = Math.min(
-      width * (1 - padding * 2) / (bounds.width || 1),
-      height * 0.70 / (bounds.height || 1)
+      availableWidth / graphWidth,
+      availableHeight / graphHeight
     );
     
-    const translateX = (width / 2) - ((bounds.minX + bounds.width / 2) * scale);
-    const translateY = (height * 0.45) - ((bounds.minY + bounds.height / 2) * scale);
+    // Center the graph
+    const offsetX = (width - graphWidth * scale) / 2 - graphBounds.minX * scale;
+    const offsetY = topMargin + (availableHeight - graphHeight * scale) / 2 - graphBounds.minY * scale;
     
-    // Draw title
+    // Draw title using theme font
     if (title) {
-      ctx.fillStyle = colors.text;
-      ctx.font = `bold ${width * 0.04}px 'Garamond', 'Georgia', 'Baskerville', serif`;
+      ctx.fillStyle = themeConfig.textColor;
+      ctx.font = `bold ${width * 0.035}px ${themeConfig.fontFamily}`;
       ctx.textAlign = 'center';
-      ctx.fillText(title, width / 2, height * 0.06);
+      ctx.fillText(title, width / 2, height * 0.05);
     }
     
-    // Draw subtitle with word wrapping
+    // Draw subtitle
     if (subtitle) {
-      ctx.fillStyle = colors.textLight;
-      const subtitleFontSize = width * 0.018;
-      ctx.font = `${subtitleFontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
+      ctx.fillStyle = themeConfig.textColor;
+      ctx.globalAlpha = 0.7;
+      const subtitleFontSize = width * 0.016;
+      ctx.font = `${subtitleFontSize}px ${themeConfig.fontFamily}`;
       ctx.textAlign = 'center';
       
+      // Word wrap
       const maxSubtitleWidth = width * 0.85;
       const words = subtitle.split(' ');
       let line = '';
-      const subtitleLines: string[] = [];
-      
-      for (let i = 0; i < words.length; i++) {
-        const testLine = line + words[i] + ' ';
-        const metrics = ctx.measureText(testLine);
-        
-        if (metrics.width > maxSubtitleWidth && i > 0) {
-          subtitleLines.push(line.trim());
-          line = words[i] + ' ';
-        } else {
-          line = testLine;
-        }
-      }
-      subtitleLines.push(line.trim());
-      
-      const maxLines = 4;
-      if (subtitleLines.length > maxLines) {
-        subtitleLines.length = maxLines;
-        subtitleLines[maxLines - 1] = subtitleLines[maxLines - 1].slice(0, -3) + '...';
-      }
-      
-      const lineHeight = subtitleFontSize * 1.4;
-      const startY = height * 0.09;
-      subtitleLines.forEach((l, i) => {
-        ctx.fillText(l, width / 2, startY + i * lineHeight);
-      });
-    }
-    
-    // Create node map for link drawing
-    const nodeMap = new Map(capturedNodes.map(n => [n.id, n]));
-    
-    // Draw links with Lombardi-style curves
-    const baseLineWidth = 1.5 * scale;
-    ctx.lineWidth = Math.max(1, baseLineWidth);
-    
-    capturedLinks.forEach(link => {
-      const source = typeof link.source === 'string' ? nodeMap.get(link.source) : link.source;
-      const target = typeof link.target === 'string' ? nodeMap.get(link.target) : link.target;
-      
-      if (!source || !target) return;
-      
-      // Transform coordinates
-      const sx = source.x * scale + translateX;
-      const sy = source.y * scale + translateY;
-      const tx = target.x * scale + translateX;
-      const ty = target.y * scale + translateY;
-      
-      const dx = tx - sx;
-      const dy = ty - sy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      
-      // Calculate control point for quadratic curve
-      const curvature = 1.0;
-      const dr = dist * curvature;
-      
-      ctx.beginPath();
-      ctx.strokeStyle = colors.lines[link.status as keyof typeof colors.lines] || colors.lines.confirmed;
-      ctx.setLineDash([]);
-      
-      if (link.status === 'former') {
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(tx, ty);
-      } else {
-        ctx.moveTo(sx, sy);
-        
-        const midX = (sx + tx) / 2;
-        const midY = (sy + ty) / 2;
-        
-        const offsetX = -dy / (dist || 1) * dr * 0.4;
-        const offsetY = dx / (dist || 1) * dr * 0.4;
-        
-        const controlX = midX + offsetX;
-        const controlY = midY + offsetY;
-        
-        ctx.quadraticCurveTo(controlX, controlY, tx, ty);
-      }
-      
-      ctx.stroke();
-      
-      // Draw arrowhead
-      const arrowSize = 5 * scale;
-      let angle;
-      
-      if (link.status === 'former') {
-        angle = Math.atan2(ty - sy, tx - sx);
-      } else {
-        const midX = (sx + tx) / 2;
-        const midY = (sy + ty) / 2;
-        const offsetX = -dy / (dist || 1) * dr * 0.4;
-        const offsetY = dx / (dist || 1) * dr * 0.4;
-        const controlX = midX + offsetX;
-        const controlY = midY + offsetY;
-        angle = Math.atan2(ty - controlY, tx - controlX);
-      }
-      
-      ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(
-        tx - arrowSize * Math.cos(angle - Math.PI / 6),
-        ty - arrowSize * Math.sin(angle - Math.PI / 6)
-      );
-      ctx.lineTo(
-        tx - arrowSize * Math.cos(angle + Math.PI / 6),
-        ty - arrowSize * Math.sin(angle + Math.PI / 6)
-      );
-      ctx.closePath();
-      ctx.fillStyle = colors.lines[link.status as keyof typeof colors.lines] || colors.lines.confirmed;
-      ctx.fill();
-    });
-    
-    // Draw nodes
-    capturedNodes.forEach(node => {
-      const x = node.x * scale + translateX;
-      const y = node.y * scale + translateY;
-      const radius = (5 + (node.importance || 0.5) * 10) * scale;
-      
-      const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(node.type);
-      const isUnknown = node.type === 'unknown' || !node.type;
-      
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      
-      if (isHollow) {
-        ctx.fillStyle = colors.nodes[node.type as keyof typeof colors.nodes] || colors.background;
-        ctx.fill();
-        ctx.strokeStyle = colors.text;
-        ctx.lineWidth = 1 * scale;
-        ctx.stroke();
-      } else if (isUnknown) {
-        ctx.fillStyle = colors.background;
-        ctx.fill();
-        ctx.strokeStyle = colors.text;
-        ctx.lineWidth = 1 * scale;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, radius, -Math.PI / 2, Math.PI / 2);
-        ctx.fillStyle = colors.text;
-        ctx.fill();
-      } else {
-        ctx.fillStyle = colors.text;
-        ctx.fill();
-      }
-      
-      // Draw node labels with text stroke for readability
-      const fontSize = 12 * scale;
-      ctx.font = `${fontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
-      ctx.fillStyle = colors.text;
-      ctx.textAlign = 'center';
-      
-      ctx.strokeStyle = colors.background;
-      ctx.lineWidth = 3 * scale;
-      ctx.strokeText(node.name, x, y + 22 * scale);
-      ctx.fillText(node.name, x, y + 22 * scale);
-    });
-    
-    // Draw notes at bottom if provided
-    if (notes) {
-      ctx.font = `${width * 0.018}px 'Garamond', 'Georgia', 'Baskerville', serif`;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = colors.text;
-      
-      const maxWidth = width * 0.8;
-      const words = notes.split(' ');
-      let line = '';
       const lines: string[] = [];
-      let y = height * 0.88;
       
       for (let i = 0; i < words.length; i++) {
         const testLine = line + words[i] + ' ';
-        const metrics = ctx.measureText(testLine);
-        
-        if (metrics.width > maxWidth && i > 0) {
+        if (ctx.measureText(testLine).width > maxSubtitleWidth && i > 0) {
           lines.push(line.trim());
           line = words[i] + ' ';
         } else {
@@ -469,21 +283,95 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       }
       lines.push(line.trim());
       
-      lines.forEach((l, i) => {
-        ctx.fillText(l, width / 2, y + i * (width * 0.025));
+      const lineHeight = subtitleFontSize * 1.3;
+      lines.slice(0, 3).forEach((l, i) => {
+        ctx.fillText(l, width / 2, height * 0.08 + i * lineHeight);
       });
+      ctx.globalAlpha = 1;
     }
+    
+    // Draw links exactly as captured (scaled)
+    capturedLinks.forEach(link => {
+      ctx.beginPath();
+      ctx.strokeStyle = link.stroke;
+      ctx.lineWidth = link.strokeWidth * scale;
+      
+      if (link.strokeDasharray && link.strokeDasharray !== 'none') {
+        const dashes = link.strokeDasharray.split(',').map(d => parseFloat(d) * scale);
+        ctx.setLineDash(dashes);
+      } else {
+        ctx.setLineDash([]);
+      }
+      
+      // Scale the path coordinates
+      const sx = link.sourceX * scale + offsetX;
+      const sy = link.sourceY * scale + offsetY;
+      const tx = link.targetX * scale + offsetX;
+      const ty = link.targetY * scale + offsetY;
+      
+      // Draw curved line matching the live graph
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      ctx.moveTo(sx, sy);
+      
+      if (dist > 0) {
+        const midX = (sx + tx) / 2;
+        const midY = (sy + ty) / 2;
+        const curveOffset = dist * themeConfig.curveIntensity * 0.3;
+        const perpX = -dy / dist * curveOffset;
+        const perpY = dx / dist * curveOffset;
+        
+        ctx.quadraticCurveTo(midX + perpX, midY + perpY, tx, ty);
+      } else {
+        ctx.lineTo(tx, ty);
+      }
+      
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+    
+    // Draw nodes exactly as captured (scaled)
+    capturedNodes.forEach(node => {
+      const x = node.x * scale + offsetX;
+      const y = node.y * scale + offsetY;
+      const r = node.radius * scale;
+      
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = node.fill;
+      ctx.fill();
+      
+      if (node.strokeWidth > 0) {
+        ctx.strokeStyle = node.stroke;
+        ctx.lineWidth = node.strokeWidth * scale;
+        ctx.stroke();
+      }
+      
+      // Draw label using theme settings
+      ctx.fillStyle = themeConfig.textColor;
+      const fontSize = themeConfig.labelSize * scale;
+      ctx.font = `500 ${fontSize}px ${themeConfig.fontFamily}`;
+      ctx.textAlign = 'center';
+      
+      // Text stroke for readability
+      ctx.strokeStyle = themeConfig.background;
+      ctx.lineWidth = 3 * scale;
+      ctx.strokeText(node.name, x, y + r + fontSize);
+      ctx.fillText(node.name, x, y + r + fontSize);
+    });
     
     // Draw legend
     if (showLegend) {
-      const legendY = height * 0.92;
-      const legendFontSize = Math.max(12, width * 0.014);
-      const dotSize = Math.max(5, width * 0.005);
+      const legendY = height * 0.93;
+      const legendFontSize = Math.max(12, width * 0.012);
+      const dotSize = Math.max(4, width * 0.004);
       
-      ctx.font = `${legendFontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
+      ctx.font = `${legendFontSize}px ${themeConfig.fontFamily}`;
       ctx.textAlign = 'left';
       
-      const entityTypes = Array.from(new Set(capturedNodes.map(n => n.type || 'unknown')));
+      const entityTypes = Array.from(new Set(capturedNodes.map(n => n.type)));
       const typeLabels: Record<string, string> = {
         person: 'Person',
         corporation: 'Corporation',
@@ -495,54 +383,46 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       
       let totalWidth = 0;
       entityTypes.forEach(type => {
-        const label = typeLabels[type] || type;
-        totalWidth += ctx.measureText(label).width + dotSize * 2 + 30;
+        totalWidth += ctx.measureText(typeLabels[type] || type).width + dotSize * 2 + 25;
       });
       
-      let legendX = (width - totalWidth) / 2 + dotSize;
+      let legendX = (width - totalWidth) / 2;
       
       entityTypes.forEach(type => {
         const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(type);
-        const isUnknown = type === 'unknown' || !type;
         
         ctx.beginPath();
         ctx.arc(legendX + dotSize, legendY, dotSize, 0, Math.PI * 2);
+        
         if (isHollow) {
-          ctx.fillStyle = colors.background;
+          ctx.fillStyle = themeConfig.background;
           ctx.fill();
-          ctx.strokeStyle = colors.text;
+          ctx.strokeStyle = themeConfig.nodeStroke;
           ctx.lineWidth = 1;
           ctx.stroke();
-        } else if (isUnknown) {
-          ctx.fillStyle = colors.background;
-          ctx.fill();
-          ctx.strokeStyle = colors.text;
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.arc(legendX + dotSize, legendY, dotSize, -Math.PI / 2, Math.PI / 2);
-          ctx.fillStyle = colors.text;
-          ctx.fill();
         } else {
-          ctx.fillStyle = colors.text;
+          ctx.fillStyle = themeConfig.nodeStroke;
           ctx.fill();
         }
         
-        ctx.fillStyle = colors.textLight;
-        const label = typeLabels[type] || type;
-        ctx.fillText(label, legendX + dotSize * 2 + 8, legendY + dotSize / 2);
-        legendX += ctx.measureText(label).width + dotSize * 2 + 30;
+        ctx.fillStyle = themeConfig.textColor;
+        ctx.globalAlpha = 0.7;
+        ctx.fillText(typeLabels[type] || type, legendX + dotSize * 2 + 6, legendY + dotSize / 2);
+        ctx.globalAlpha = 1;
+        legendX += ctx.measureText(typeLabels[type] || type).width + dotSize * 2 + 25;
       });
     }
     
     // Draw watermark
     if (showWatermark) {
-      ctx.fillStyle = colors.textLight;
-      ctx.font = `${width * 0.02}px 'Garamond', 'Georgia', 'Baskerville', serif`;
+      ctx.fillStyle = themeConfig.textColor;
+      ctx.globalAlpha = 0.5;
+      ctx.font = `${width * 0.015}px ${themeConfig.fontFamily}`;
       ctx.textAlign = 'center';
-      ctx.fillText('Created with SilentPartners.app — A Brazen Production', width / 2, height * 0.97);
+      ctx.fillText('Created with SilentPartners.app', width / 2, height * 0.97);
+      ctx.globalAlpha = 1;
     }
-  }, [capturedNodes, capturedLinks, format, title, subtitle, notes, showLegend, showWatermark, getNetworkBounds]);
+  }, [capturedNodes, capturedLinks, graphBounds, format, title, subtitle, notes, showLegend, showWatermark, themeConfig]);
 
   // Re-render when options change
   useEffect(() => {
@@ -551,7 +431,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, capturedNodes, renderCanvas]);
 
-  // Download PNG
   const handleDownload = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -567,7 +446,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     toast.success('Artwork downloaded successfully');
   };
 
-  // Copy to clipboard
   const handleCopy = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -689,8 +567,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           <div className="space-y-4">
             <Label>Preview</Label>
             <div 
-              className="border rounded-lg overflow-hidden bg-[#F9F6EE]"
-              style={{ aspectRatio: aspectRatio }}
+              className="border rounded-lg overflow-hidden"
+              style={{ aspectRatio: aspectRatio, background: themeConfig.background }}
             >
               <canvas
                 ref={canvasRef}
