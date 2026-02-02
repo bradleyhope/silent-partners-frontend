@@ -80,7 +80,11 @@ export function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Entity type colors
+/**
+ * Entity type colors
+ * @deprecated Use ENTITY_COLORS from '@/contexts/CanvasThemeContext' instead.
+ * This is kept for backward compatibility with components that don't use themes.
+ */
 export const entityColors: Record<Entity['type'], string> = {
   person: '#4A90A4',
   corporation: '#7CB342',
