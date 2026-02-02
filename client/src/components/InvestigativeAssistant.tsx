@@ -343,7 +343,24 @@ export default function InvestigativeAssistant({
 }: InvestigativeAssistantProps) {
   const { network, addOrMergeEntity, addOrMergeRelationship, dispatch } = useNetwork();
   
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Generate storage key based on network ID
+  const storageKey = `sp-chat-${network.id || 'default'}`;
+  
+  // Initialize messages from localStorage
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load chat history from localStorage:', e);
+    }
+    return [];
+  });
   const [inputValue, setInputValue] = useState('');
   const [showContext, setShowContext] = useState(true);
   const [showEvents, setShowEvents] = useState(false);
@@ -382,7 +399,41 @@ export default function InvestigativeAssistant({
     };
   }, []);
   
-  // Add a welcome message on first open
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(messages));
+      } catch (e) {
+        console.warn('Failed to save chat history to localStorage:', e);
+      }
+    }
+  }, [messages, storageKey]);
+  
+  // Load messages when network ID changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load chat history:', e);
+    }
+    // If no saved messages, show welcome
+    setMessages([{
+      id: 'welcome',
+      role: 'assistant',
+      content: "I'm your investigative assistant. I can help you research people, organizations, and their connections. Ask me to find information, analyze patterns, or explore relationships in your network.",
+      timestamp: new Date().toISOString(),
+    }]);
+  }, [storageKey]);
+  
+  // Add a welcome message on first open (only if no messages loaded)
   useEffect(() => {
     if (isOpen && messages.length === 0) {
       setMessages([{
@@ -597,15 +648,22 @@ export default function InvestigativeAssistant({
     textareaRef.current?.focus();
   }, []);
   
-  // Clear chat
+  // Clear chat (also clears localStorage)
   const handleClear = useCallback(() => {
-    setMessages([{
+    const newMessages = [{
       id: 'welcome-new',
       role: 'assistant',
       content: "Chat cleared. How can I help with your investigation?",
       timestamp: new Date().toISOString(),
-    }]);
-  }, []);
+    }];
+    setMessages(newMessages);
+    // Update localStorage immediately
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(newMessages));
+    } catch (e) {
+      console.warn('Failed to clear chat history in localStorage:', e);
+    }
+  }, [storageKey]);
   
   // Handle suggestion click
   const handleSuggestionClick = useCallback((suggestion: Suggestion) => {

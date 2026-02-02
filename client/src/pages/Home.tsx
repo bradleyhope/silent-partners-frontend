@@ -209,21 +209,6 @@ function AppContentInner() {
             <NetworkCanvas />
           </CanvasErrorBoundary>
           
-          {/* Top-left controls (when sidebar is collapsed) */}
-          {sidebarCollapsed && (
-            <div className="absolute top-2 left-2 z-10 hidden md:block">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={toggleSidebarCollapse}
-                className="gap-1.5"
-              >
-                <Wrench className="w-4 h-4" />
-                Tools
-                <ChevronRight className="w-3 h-3" />
-              </Button>
-            </div>
-          )}
           
           {/* Top-right controls */}
           <div className="absolute top-2 right-2 z-10 flex items-center gap-2">

@@ -101,7 +101,7 @@ export function UndoHistoryPanel() {
   }
 
   return (
-    <div className="absolute top-2 sm:top-4 right-2 sm:right-4 z-10">
+    <div className="relative">
       <Button
         variant="outline"
         size="sm"

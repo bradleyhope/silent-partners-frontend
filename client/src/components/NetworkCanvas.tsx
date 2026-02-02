@@ -248,9 +248,24 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   // Update graph when data changes - with animations
   useEffect(() => {
-    if (!gRef.current || network.entities.length === 0) return;
-
+    if (!gRef.current) return;
+    
     const g = gRef.current;
+    
+    // Handle empty network - clear all SVG elements
+    if (network.entities.length === 0) {
+      g.selectAll('.link').remove();
+      g.selectAll('.node').remove();
+      g.selectAll('.link-label').remove();
+      nodesRef.current = [];
+      linksRef.current = [];
+      prevEntitiesRef.current = new Set();
+      prevRelationshipsRef.current = new Set();
+      if (simulationRef.current) {
+        simulationRef.current.stop();
+      }
+      return;
+    }
     const { width, height } = dimensions;
     const now = Date.now();
 
@@ -436,11 +451,13 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         .text(d.label || '');
     });
 
-    if (showAllLabels) {
-      linkLabelsEnter.transition().duration(300).attr('opacity', 0.8);
-    }
-
     const linkLabelsGroup = linkLabelsEnter.merge(linkLabelsSelection);
+    
+    // Apply showAllLabels to ALL labels (new and existing)
+    linkLabelsGroup
+      .transition()
+      .duration(300)
+      .attr('opacity', showAllLabels ? 0.8 : 0);
 
     // Update link label styles on theme change
     linkLabelsGroup

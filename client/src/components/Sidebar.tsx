@@ -62,21 +62,17 @@ export default function Sidebar({
     }
   }, [network.entities.length, mobileOpen, closeMobile]);
 
-  // Collapsed state - show only a thin strip with expand button
+  // Collapsed state - show only a thin strip (entire strip is clickable to expand)
   if (isCollapsed && !mobileOpen) {
     return (
-      <aside className="hidden md:flex flex-col h-full w-12 bg-sidebar border-r border-sidebar-border">
-        {/* Expand button at top */}
-        <div className="p-2 border-b border-sidebar-border">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-8 h-8 p-0"
-            onClick={onToggleCollapse}
-            title="Expand toolbar"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+      <aside 
+        className="hidden md:flex flex-col h-full w-12 bg-sidebar border-r border-sidebar-border cursor-pointer hover:bg-sidebar-accent/50 transition-colors"
+        onClick={onToggleCollapse}
+        title="Click to expand toolbar"
+      >
+        {/* Expand indicator at top */}
+        <div className="p-2 border-b border-sidebar-border flex justify-center">
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </div>
         
         {/* Vertical label */}
@@ -93,7 +89,7 @@ export default function Sidebar({
         </div>
         
         {/* Stats at bottom */}
-        <div className="p-2 border-t border-sidebar-border">
+        <div className="p-2 border-t border-sidebar-border" onClick={(e) => e.stopPropagation()}>
           <div className="text-[9px] font-mono text-muted-foreground text-center">
             <div>{network.entities.length}</div>
             <div className="text-[8px]">ent</div>
@@ -101,7 +97,10 @@ export default function Sidebar({
           {/* Pending claims indicator */}
           {pendingClaimsCount > 0 && onToggleSuggestionQueue && (
             <button
-              onClick={onToggleSuggestionQueue}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSuggestionQueue();
+              }}
               className="mt-2 w-full flex justify-center"
               title={`${pendingClaimsCount} pending suggestions`}
             >
