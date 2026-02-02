@@ -561,6 +561,35 @@ class ApiClient {
       }),
     });
   }
+
+  // F-06: Process article URL or pasted text to extract entities
+  async processArticle(input: string): Promise<{
+    success: boolean;
+    url?: string;
+    title?: string;
+    source?: 'exa' | 'scrape' | 'pasted_text';
+    content_length?: number;
+    entities: Array<{
+      id?: string;
+      name: string;
+      type: string;
+      description?: string;
+    }>;
+    relationships: Array<{
+      source: string;
+      target: string;
+      type?: string;
+    }>;
+    entity_count: number;
+    relationship_count: number;
+    error?: string;
+  }> {
+    return this.request('/ai/process-article', {
+      method: 'POST',
+      body: JSON.stringify({ input }),
+      timeout: 180000, // 3 minutes for article processing
+    });
+  }
 }
 export const api = new ApiClient();
 export default api;

@@ -520,6 +520,17 @@ export default function InvestigativeAssistant({
     }
   }, [onActionClick]);
   
+  // Helper to detect URLs in text
+  const isUrl = (text: string): boolean => {
+    const urlPattern = /^https?:\/\/[^\s<>"{}|\\^`\[\]]+$/;
+    return urlPattern.test(text.trim());
+  };
+  
+  const extractUrls = (text: string): string[] => {
+    const urlPattern = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
+    return text.match(urlPattern) || [];
+  };
+
   // Handle sending a message
   const handleSend = useCallback(async () => {
     const query = inputValue.trim();
@@ -535,6 +546,84 @@ export default function InvestigativeAssistant({
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsProcessing(true);
+    
+    // F-06: Check if input is a URL or contains URLs - process as article
+    const urls = extractUrls(query);
+    if (urls.length > 0 && (isUrl(query) || query.toLowerCase().includes('article') || query.toLowerCase().includes('read this'))) {
+      try {
+        setProgressStatus({ step: 1, total: 3, goal: 'Fetching article content...' });
+        
+        const { api } = await import('@/lib/api');
+        const result = await api.processArticle(query);
+        
+        if (result.success) {
+          setProgressStatus({ step: 2, total: 3, goal: 'Adding entities to graph...' });
+          
+          // Add entities to graph
+          for (const entity of result.entities) {
+            const newEntity: Entity = {
+              id: entity.id || generateId(),
+              name: entity.name,
+              type: entity.type || 'unknown',
+              description: entity.description || '',
+              importance: 5,
+              source_type: 'article',
+              source_query: result.url || query,
+              created_at: new Date().toISOString(),
+            };
+            dispatch({ type: 'ADD_ENTITY', payload: newEntity });
+          }
+          
+          // Add relationships
+          for (const rel of result.relationships) {
+            const newRel: Relationship = {
+              id: generateId(),
+              source: rel.source,
+              target: rel.target,
+              type: rel.type || 'related',
+              created_at: new Date().toISOString(),
+            };
+            dispatch({ type: 'ADD_RELATIONSHIP', payload: newRel });
+          }
+          
+          // Update title if article has one
+          if (result.title && network.title === 'Untitled Network') {
+            dispatch({ type: 'UPDATE_NETWORK', payload: { title: result.title } });
+          }
+          
+          setProgressStatus({ step: 3, total: 3, goal: 'Complete!' });
+          
+          // Add assistant response
+          const assistantMessage: ChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: `**Article Processed** \u2705\n\nExtracted from ${result.source === 'exa' ? 'Exa AI' : result.source === 'scrape' ? 'web scraping' : 'pasted text'}:\n- **${result.entity_count}** entities\n- **${result.relationship_count}** relationships\n\n${result.title ? `**Title:** ${result.title}` : ''}`,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              entitiesFound: result.entity_count,
+              relationshipsFound: result.relationship_count,
+            },
+          };
+          setMessages(prev => [...prev, assistantMessage]);
+          toast.success(`Extracted ${result.entity_count} entities from article`);
+        } else {
+          throw new Error(result.error || 'Failed to process article');
+        }
+      } catch (error) {
+        const errorMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: `Failed to process article: ${error instanceof Error ? error.message : 'Unknown error'}. Try pasting the article text directly instead.`,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        toast.error('Failed to process article');
+      } finally {
+        setIsProcessing(false);
+        setProgressStatus(null);
+      }
+      return; // Exit early - don't run orchestrator for article URLs
+    }
     
     // Clear entity tracking for new query
     entityIdMap.current.clear();
