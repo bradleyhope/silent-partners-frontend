@@ -31,7 +31,7 @@ export function ChatMessageBubble({ message }: { message: ChatMessage }) {
   
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
-      <div className={`max-w-[85%] ${
+      <div className={`max-w-[95%] ${
         isUser 
           ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-md' 
           : isSystem
