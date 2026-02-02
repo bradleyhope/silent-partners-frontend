@@ -19,7 +19,7 @@ interface Dimensions {
  * @returns Current dimensions object
  */
 export function useCanvasDimensions(
-  containerRef: RefObject<HTMLDivElement>,
+  containerRef: RefObject<HTMLDivElement | null>,
   defaultDimensions: Dimensions = { width: 800, height: 600 }
 ): Dimensions {
   const [dimensions, setDimensions] = useState<Dimensions>(defaultDimensions);

@@ -293,8 +293,8 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
           .strength(0.2))
         .force('charge', d3.forceManyBody().strength(chargeStrength).distanceMax(500))
         .force('center', d3.forceCenter(width / 2, height / 2).strength(0.03))
-        .force('collision', d3.forceCollide()
-          .radius((d: SimulationNode) => collisionRadius + getNodeRadius(d))
+        .force('collision', d3.forceCollide<SimulationNode>()
+          .radius(d => collisionRadius + getNodeRadius(d))
           .strength(0.8))
         .force('x', d3.forceX(width / 2).strength(0.02))
         .force('y', d3.forceY(height / 2).strength(0.02))
@@ -306,7 +306,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       linkForce.links(links).distance(linkDistance);
       (simulationRef.current.force('charge') as d3.ForceManyBody<SimulationNode>).strength(chargeStrength);
       (simulationRef.current.force('collision') as d3.ForceCollide<SimulationNode>)
-        .radius((d: SimulationNode) => collisionRadius + getNodeRadius(d));
+        .radius(d => collisionRadius + getNodeRadius(d));
       simulationRef.current.force('center', d3.forceCenter(width / 2, height / 2).strength(0.03));
       simulationRef.current.force('x', d3.forceX(width / 2).strength(0.02));
       simulationRef.current.force('y', d3.forceY(height / 2).strength(0.02));
