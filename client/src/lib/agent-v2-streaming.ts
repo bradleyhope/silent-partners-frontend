@@ -314,9 +314,8 @@ function handleAgentV2Event(
       
     case 'tool_start':
       callbacks.onToolStart?.(event.tool || '', event.arguments || {});
-      // Also emit as thinking for UI feedback
-      const toolMessage = getToolStartMessage(event.tool, event.arguments);
-      callbacks.onThinking?.(toolMessage);
+      // Note: Removed onThinking call to prevent tool indicators from polluting the response
+      // Tool activity is shown via onToolStart callback instead
       break;
       
     case 'tool_result':

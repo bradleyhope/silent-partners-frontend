@@ -958,11 +958,11 @@ function handleAgentV2Event(
       break;
       
     case 'tool_start':
-      // Simulate step started
+      // Simulate step started - DO NOT append to thinking/response content
       const toolMessage = getToolStartMessage(event.tool, event.arguments || {});
       callbacks.onStepStarted?.(toolCallCount + 1, toolCallCount + 2, toolMessage);
       callbacks.onSearching?.(toolMessage);
-      callbacks.onThinking?.(toolMessage);
+      // Note: Removed onThinking call to prevent tool indicators from polluting the response
       break;
       
     case 'tool_result':
