@@ -21,6 +21,7 @@ import { MobileSidebarProvider } from '@/contexts/MobileSidebarContext';
 import Header from '@/components/Header';
 import Sidebar from '@/components/Sidebar';
 import NetworkCanvas from '@/components/NetworkCanvas';
+import FileDropZone from '@/components/JsonDropZone';
 import CanvasErrorBoundary from '@/components/CanvasErrorBoundary';
 import InvestigativeAssistant, { 
   InvestigationContext, 
@@ -206,7 +207,9 @@ function AppContentInner() {
         {/* Main Canvas */}
         <main className="flex-1 relative overflow-hidden">
           <CanvasErrorBoundary>
-            <NetworkCanvas />
+            <FileDropZone>
+              <NetworkCanvas />
+            </FileDropZone>
           </CanvasErrorBoundary>
           
           
