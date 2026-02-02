@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Copy, RefreshCw, Loader2 } from 'lucide-react';
+import { Download, Copy, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
 import { toast } from 'sonner';
@@ -87,6 +87,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const [capturedNodes, setCapturedNodes] = useState<CapturedNode[]>([]);
   const [capturedLinks, setCapturedLinks] = useState<CapturedLink[]>([]);
   const [graphBounds, setGraphBounds] = useState({ minX: 0, minY: 0, maxX: 800, maxY: 600 });
+  const [orphanNodes, setOrphanNodes] = useState<string[]>([]);
 
   // Initialize from network
   useEffect(() => {
@@ -201,6 +202,18 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       setGraphBounds({ minX, minY, maxX, maxY });
     }
     
+    // Detect orphan nodes (nodes with no connections)
+    const connectedNodeIds = new Set<string>();
+    network.relationships.forEach(rel => {
+      connectedNodeIds.add(rel.source);
+      connectedNodeIds.add(rel.target);
+    });
+    
+    const orphans = nodes
+      .filter(n => !connectedNodeIds.has(n.id))
+      .map(n => n.name);
+    
+    setOrphanNodes(orphans);
     setCapturedNodes(nodes);
     setCapturedLinks(links);
     setIsRendering(false);
@@ -578,6 +591,27 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
             <div className="text-sm text-muted-foreground text-center">
               {capturedNodes.length} entities, {capturedLinks.length} relationships
             </div>
+            
+            {/* Orphan node warning */}
+            {orphanNodes.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-amber-800">
+                    {orphanNodes.length} orphan {orphanNodes.length === 1 ? 'node' : 'nodes'} detected
+                  </p>
+                  <p className="text-amber-700 mt-1">
+                    {orphanNodes.length === 1 ? 'This entity has' : 'These entities have'} no connections and may create awkward empty space in your export:
+                  </p>
+                  <p className="text-amber-600 mt-1 italic">
+                    {orphanNodes.slice(0, 3).join(', ')}{orphanNodes.length > 3 ? `, +${orphanNodes.length - 3} more` : ''}
+                  </p>
+                  <p className="text-amber-700 mt-2 text-xs">
+                    Consider connecting or removing these entities before exporting.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         
