@@ -765,40 +765,11 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
                 size="sm"
                 className="h-7 text-xs px-2"
                 onClick={() => setShowExportMenu((prev) => !prev)}
-                disabled={network.entities.length === 0}
               >
                 <Download className="w-3 h-3" />
               </Button>
               {showExportMenu && (
                 <div className="absolute right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-lg z-50 min-w-[140px]">
-                  <button
-                    onClick={() => {
-                      setShowExportModal(true);
-                      setShowExportMenu(false);
-                    }}
-                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors font-medium text-primary"
-                  >
-                    Create Artwork
-                  </button>
-                  <div className="border-t border-border" />
-                  <button
-                    onClick={handleExportPng}
-                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
-                  >
-                    Quick PNG
-                  </button>
-                  <button
-                    onClick={handleExportSvg}
-                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
-                  >
-                    Export SVG
-                  </button>
-                  <button
-                    onClick={handleExportJson}
-                    className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors border-t border-border"
-                  >
-                    Export JSON
-                  </button>
                   <button
                     onClick={handleImportClick}
                     className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors flex items-center gap-1"
@@ -806,6 +777,39 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
                     <Upload className="w-3 h-3" />
                     Import JSON
                   </button>
+                  {network.entities.length > 0 && (
+                    <>
+                      <div className="border-t border-border" />
+                      <button
+                        onClick={() => {
+                          setShowExportModal(true);
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors font-medium text-primary"
+                      >
+                        Create Artwork
+                      </button>
+                      <button
+                        onClick={handleExportPng}
+                        className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
+                      >
+                        Quick PNG
+                      </button>
+                      <button
+                        onClick={handleExportSvg}
+                        className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
+                      >
+                        Export SVG
+                      </button>
+                      <div className="border-t border-border" />
+                      <button
+                        onClick={handleExportJson}
+                        className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
+                      >
+                        Export JSON
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
