@@ -36,6 +36,7 @@ import { streamOrchestrate, OrchestratorCallbacks, InvestigationContext as Strea
 import { generateId, Entity, Relationship } from '@/lib/store';
 import claimsApi, { Claim } from '@/lib/claims-api';
 import { ChatMessageBubble, ChatMessage } from './ChatMessageBubble';
+import { useOrchestrator } from '@/contexts/OrchestratorContext';
 
 // ============================================
 // Types and Interfaces
@@ -342,6 +343,7 @@ export default function InvestigativeAssistant({
   onSuggestionClick,
 }: InvestigativeAssistantProps) {
   const { network, addOrMergeEntity, addOrMergeRelationship, dispatch } = useNetwork();
+  const { registerMessageHandler } = useOrchestrator();
   
   // Generate storage key based on network ID
   const storageKey = `sp-chat-${network.id || 'default'}`;
@@ -746,6 +748,22 @@ export default function InvestigativeAssistant({
       console.warn('Failed to clear chat history in localStorage:', e);
     }
   }, [storageKey]);
+  
+  // Programmatic send function for orchestrator context
+  const sendMessage = useCallback((message: string) => {
+    if (!message.trim() || isProcessing) return;
+    setInputValue(message);
+    // Use setTimeout to ensure state is updated before sending
+    setTimeout(() => {
+      const fakeEvent = { preventDefault: () => {} } as React.KeyboardEvent;
+      handleSend();
+    }, 0);
+  }, [isProcessing, handleSend]);
+  
+  // Register the send function with the orchestrator context
+  useEffect(() => {
+    registerMessageHandler(sendMessage);
+  }, [registerMessageHandler, sendMessage]);
   
   // Handle suggestion click
   const handleSuggestionClick = useCallback((suggestion: Suggestion) => {

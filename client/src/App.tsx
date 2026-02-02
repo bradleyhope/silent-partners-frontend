@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { CanvasThemeProvider } from "./contexts/CanvasThemeContext";
+import { OrchestratorProvider } from "./contexts/OrchestratorContext";
 import Home from "./pages/Home";
 import ShareView from "./pages/ShareView";
 
@@ -27,7 +28,8 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <AuthProvider>
           <CanvasThemeProvider>
-            <TooltipProvider>
+            <OrchestratorProvider>
+              <TooltipProvider>
               <Toaster 
                 position="top-right"
                 toastOptions={{
@@ -38,6 +40,7 @@ function App() {
               />
               <Router />
             </TooltipProvider>
+              </OrchestratorProvider>
           </CanvasThemeProvider>
         </AuthProvider>
       </ThemeProvider>
