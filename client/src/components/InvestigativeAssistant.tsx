@@ -364,6 +364,15 @@ export default function InvestigativeAssistant({
   const [inputValue, setInputValue] = useState('');
   const [showContext, setShowContext] = useState(true);
   const [showEvents, setShowEvents] = useState(false);
+  
+  // Progress tracking for streaming feedback
+  const [progressStatus, setProgressStatus] = useState<{
+    step?: number;
+    total?: number;
+    goal?: string;
+    searching?: string;
+    plan?: Array<{ step: number; goal: string }>;
+  } | null>(null);
   const [showResearchHistory, setShowResearchHistory] = useState(false);
   const [isEditingContext, setIsEditingContext] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -608,7 +617,26 @@ export default function InvestigativeAssistant({
         }
       },
       onStepStarted: (step: number, total: number, goal: string) => {
-        // Could show progress indicator
+        setProgressStatus(prev => ({
+          ...prev,
+          step,
+          total,
+          goal,
+          searching: undefined, // Clear searching when new step starts
+        }));
+      },
+      onPlanCreated: (steps: number, plan: Array<{ step: number; goal: string; search_query: string }>) => {
+        setProgressStatus({
+          step: 0,
+          total: steps,
+          plan: plan.map(p => ({ step: p.step, goal: p.goal })),
+        });
+      },
+      onSearching: (message: string) => {
+        setProgressStatus(prev => ({
+          ...prev,
+          searching: message,
+        }));
       },
       onEntityFound: (entity: PipelineEntity, isNew: boolean) => {
         const converted = convertEntity(entity);
@@ -644,6 +672,7 @@ export default function InvestigativeAssistant({
         };
         setMessages(prev => [...prev, assistantMessage]);
         setIsProcessing(false);
+        setProgressStatus(null); // Clear progress on complete
         
         // Show toast for claims
         if (claimsCreated > 0) {
@@ -664,6 +693,7 @@ export default function InvestigativeAssistant({
         };
         setMessages(prev => [...prev, errorMessage]);
         setIsProcessing(false);
+        setProgressStatus(null); // Clear progress on error
         toast.error('Research failed. Please try again.');
       },
       onContextUpdate: (update) => {
@@ -1048,11 +1078,66 @@ export default function InvestigativeAssistant({
             ))}
             {isProcessing && (
               <div className="flex justify-start mb-3">
-                <div className="bg-muted rounded-2xl rounded-bl-md px-4 py-3">
+                <div className="bg-muted rounded-2xl rounded-bl-md px-4 py-3 max-w-[95%]">
                   <div className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                    <span className="text-sm text-muted-foreground">Researching...</span>
+                    <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0" />
+                    <div className="text-sm">
+                      {progressStatus?.step && progressStatus?.total ? (
+                        <div className="space-y-1">
+                          <div className="text-muted-foreground">
+                            Step {progressStatus.step} of {progressStatus.total}
+                          </div>
+                          {progressStatus.goal && (
+                            <div className="text-foreground font-medium">
+                              {progressStatus.goal}
+                            </div>
+                          )}
+                          {progressStatus.searching && (
+                            <div className="text-xs text-muted-foreground italic">
+                              🔍 {progressStatus.searching}
+                            </div>
+                          )}
+                        </div>
+                      ) : progressStatus?.searching ? (
+                        <div className="space-y-1">
+                          <div className="text-muted-foreground">Researching...</div>
+                          <div className="text-xs text-muted-foreground italic">
+                            🔍 {progressStatus.searching}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Researching...</span>
+                      )}
+                    </div>
                   </div>
+                  {/* Show plan preview if available */}
+                  {progressStatus?.plan && progressStatus.plan.length > 1 && (
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <div className="text-[10px] text-muted-foreground mb-1">Research Plan:</div>
+                      <div className="space-y-0.5">
+                        {progressStatus.plan.slice(0, 4).map((p, i) => (
+                          <div 
+                            key={i} 
+                            className={`text-[10px] flex items-center gap-1 ${
+                              progressStatus.step && i + 1 < progressStatus.step 
+                                ? 'text-green-500 line-through opacity-60' 
+                                : i + 1 === progressStatus.step 
+                                  ? 'text-primary font-medium' 
+                                  : 'text-muted-foreground'
+                            }`}
+                          >
+                            <span className="w-3">{i + 1}.</span>
+                            <span className="truncate">{p.goal}</span>
+                          </div>
+                        ))}
+                        {progressStatus.plan.length > 4 && (
+                          <div className="text-[10px] text-muted-foreground">
+                            +{progressStatus.plan.length - 4} more steps...
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
