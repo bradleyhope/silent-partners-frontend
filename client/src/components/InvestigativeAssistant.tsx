@@ -535,6 +535,58 @@ export default function InvestigativeAssistant({
     let claimsCreated = 0;
     let responseContent = '';
     
+    // Extract potential entity names from query immediately
+    // This gives instant visual feedback while the AI researches
+    const extractImmediateEntities = (text: string): string[] => {
+      const entities: string[] = [];
+      
+      // Pattern 1: Capitalized multi-word names (e.g., "Benjamin Mauerberger", "Elon Musk")
+      const namePattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g;
+      let match;
+      while ((match = namePattern.exec(text)) !== null) {
+        const name = match[1];
+        // Filter out common phrases that aren't names
+        const skipPhrases = ['The', 'This', 'That', 'What', 'Who', 'How', 'Why', 'When', 'Where'];
+        if (!skipPhrases.some(p => name.startsWith(p + ' '))) {
+          entities.push(name);
+        }
+      }
+      
+      // Pattern 2: Quoted names (e.g., "Benjamin Mauerberger")
+      const quotedPattern = /["']([^"']+)["']/g;
+      while ((match = quotedPattern.exec(text)) !== null) {
+        const name = match[1].trim();
+        if (name.length > 2 && name.length < 50 && !entities.includes(name)) {
+          entities.push(name);
+        }
+      }
+      
+      return [...new Set(entities)]; // Remove duplicates
+    };
+    
+    // Add immediate entities to graph with "pending" status
+    const immediateEntities = extractImmediateEntities(query);
+    for (const name of immediateEntities) {
+      // Check if entity already exists
+      const exists = network.entities.some(
+        e => e.name.toLowerCase() === name.toLowerCase()
+      );
+      if (!exists) {
+        const newEntity: Entity = {
+          id: generateId(),
+          name: name,
+          type: 'unknown', // Will be updated by AI
+          description: 'Researching...',
+          importance: 5,
+          source_type: 'manual',
+          source_query: query,
+          created_at: new Date().toISOString(),
+        };
+        dispatch({ type: 'ADD_ENTITY', payload: newEntity });
+        entitiesFound++;
+      }
+    }
+    
     // Build context for orchestrator
     const streamContext: StreamContext = {
       topic: context.topic || '',
