@@ -245,12 +245,45 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.fillText(title, width / 2, height * 0.06);
     }
     
-    // Draw subtitle
+    // Draw subtitle with word wrapping
     if (subtitle) {
       ctx.fillStyle = colors.textLight;
-      ctx.font = `${width * 0.018}px 'Georgia', 'Garamond', serif`;
+      const subtitleFontSize = width * 0.016;
+      ctx.font = `${subtitleFontSize}px Georgia, Garamond, serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(subtitle, width / 2, height * 0.09);
+      
+      // Word wrap subtitle to fit within 85% of width
+      const maxSubtitleWidth = width * 0.85;
+      const words = subtitle.split(' ');
+      let line = '';
+      const subtitleLines: string[] = [];
+      
+      for (let i = 0; i < words.length; i++) {
+        const testLine = line + words[i] + ' ';
+        const metrics = ctx.measureText(testLine);
+        
+        if (metrics.width > maxSubtitleWidth && i > 0) {
+          subtitleLines.push(line.trim());
+          line = words[i] + ' ';
+        } else {
+          line = testLine;
+        }
+      }
+      subtitleLines.push(line.trim());
+      
+      // Limit to 3 lines max, add ellipsis if truncated
+      const maxLines = 3;
+      if (subtitleLines.length > maxLines) {
+        subtitleLines.length = maxLines;
+        subtitleLines[maxLines - 1] = subtitleLines[maxLines - 1].slice(0, -3) + '...';
+      }
+      
+      // Draw each line
+      const lineHeight = subtitleFontSize * 1.4;
+      const startY = height * 0.085;
+      subtitleLines.forEach((l, i) => {
+        ctx.fillText(l, width / 2, startY + i * lineHeight);
+      });
     }
     
     // Create node map for link drawing
@@ -322,6 +355,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     optimizedNodes.forEach(node => {
       const radius = Math.max(4, width * 0.004) * (0.8 + (node.importance || 0.5) * 0.4);
       const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(node.type);
+      const isUnknown = node.type === 'unknown' || !node.type;
       
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
@@ -333,6 +367,18 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = Math.max(1, width * 0.0008);
         ctx.stroke();
+      } else if (isUnknown) {
+        // Half-filled circle for unknown type
+        ctx.fillStyle = colors.background;
+        ctx.fill();
+        ctx.strokeStyle = colors.text;
+        ctx.lineWidth = Math.max(1, width * 0.0008);
+        ctx.stroke();
+        // Fill right half
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, -Math.PI / 2, Math.PI / 2);
+        ctx.fillStyle = colors.text;
+        ctx.fill();
       } else {
         // Solid circle for people
         ctx.fillStyle = colors.text;
@@ -408,6 +454,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       
       entityTypes.forEach(type => {
         const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(type);
+        const isUnknown = type === 'unknown' || !type;
         
         // Draw dot
         ctx.beginPath();
@@ -418,6 +465,17 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           ctx.strokeStyle = colors.text;
           ctx.lineWidth = 1;
           ctx.stroke();
+        } else if (isUnknown) {
+          // Half-filled circle for unknown
+          ctx.fillStyle = colors.background;
+          ctx.fill();
+          ctx.strokeStyle = colors.text;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(legendX + dotSize, legendY, dotSize, -Math.PI / 2, Math.PI / 2);
+          ctx.fillStyle = colors.text;
+          ctx.fill();
         } else {
           ctx.fillStyle = colors.text;
           ctx.fill();
