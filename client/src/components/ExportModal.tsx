@@ -7,6 +7,8 @@
  * - Optimized spacing to prevent node clustering
  * - High-resolution canvas rendering
  * - Lombardi-style curved lines and typography
+ * 
+ * Updated 2026-02-02: Improved label rendering based on original working version
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -41,22 +43,22 @@ const EXPORT_FORMATS: Record<string, ExportFormat> = {
   '8k': { width: 7680, height: 4320, label: '8K Ultra HD (7680×4320)' },
 };
 
-// Lombardi color palette
+// Lombardi color palette - matching our app's style
 const LOMBARDI_COLORS = {
-  background: '#F5F2ED',
-  text: '#2A2A2A',
-  textLight: '#666666',
+  background: '#F9F6EE',  // Warm cream background
+  text: '#2A2A2A',        // Dark charcoal text
+  textLight: '#666666',   // Lighter text for subtitles
   lines: {
-    confirmed: '#2A2A2A',
-    suspected: '#666666',
-    former: '#999999',
+    confirmed: 'rgba(26, 26, 26, 0.85)',
+    suspected: 'rgba(26, 26, 26, 0.4)',
+    former: 'rgba(26, 26, 26, 0.25)',
   },
   nodes: {
-    person: '#2A2A2A',
-    corporation: '#F5F2ED',
-    organization: '#F5F2ED',
-    financial: '#F5F2ED',
-    government: '#F5F2ED',
+    person: 'rgba(249, 246, 238, 0.6)',
+    corporation: 'rgba(245, 245, 245, 0.6)',
+    government: 'rgba(240, 234, 214, 0.6)',
+    financial: 'rgba(255, 250, 240, 0.6)',
+    organization: 'rgba(248, 248, 255, 0.6)',
   }
 };
 
@@ -112,6 +114,37 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, network.title, network.description]);
 
+  // Get network bounds for scaling (from original working version)
+  const getNetworkBounds = useCallback((nodes: ExportNode[]) => {
+    if (nodes.length === 0) {
+      return { minX: 0, minY: 0, width: 100, height: 100 };
+    }
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    nodes.forEach(node => {
+      const radius = 5 + (node.importance || 0.5) * 10;
+      minX = Math.min(minX, node.x - radius);
+      minY = Math.min(minY, node.y - radius);
+      maxX = Math.max(maxX, node.x + radius);
+      maxY = Math.max(maxY, node.y + radius);
+    });
+
+    // Add space for labels
+    minY = Math.min(minY, minY - 30);
+    maxY = Math.max(maxY, maxY + 40);
+
+    return {
+      minX,
+      minY,
+      width: maxX - minX,
+      height: maxY - minY
+    };
+  }, []);
+
   // Run dedicated force simulation for export layout
   const optimizeLayout = useCallback(() => {
     if (network.entities.length === 0) return;
@@ -157,9 +190,9 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       }));
     
     // Calculate optimal forces based on network size
-    const linkDistance = Math.max(100, Math.min(200, graphWidth / Math.sqrt(nodeCount)));
-    const chargeStrength = -Math.max(300, Math.min(800, 500 * Math.sqrt(nodeCount / 10)));
-    const collisionRadius = Math.max(30, Math.min(60, graphWidth / nodeCount * 0.3));
+    const linkDistance = Math.max(120, Math.min(250, graphWidth / Math.sqrt(nodeCount)));
+    const chargeStrength = -Math.max(400, Math.min(1000, 600 * Math.sqrt(nodeCount / 10)));
+    const collisionRadius = Math.max(40, Math.min(80, graphWidth / nodeCount * 0.4));
     
     // Create force simulation optimized for poster layout
     const simulation = d3.forceSimulation<ExportNode>(nodes)
@@ -171,8 +204,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         .strength(chargeStrength)
         .distanceMax(graphWidth * 0.5))
       .force('collide', d3.forceCollide<ExportNode>()
-        .radius(d => collisionRadius + (d.importance || 0.5) * 20)
-        .strength(0.8))
+        .radius(d => collisionRadius + (d.importance || 0.5) * 25)
+        .strength(0.9))
       .force('center', d3.forceCenter(graphCenterX, graphCenterY))
       .force('x', d3.forceX(graphCenterX).strength(0.05))
       .force('y', d3.forceY(graphCenterY).strength(0.05))
@@ -186,7 +219,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
     
     // Constrain nodes to graph area
-    const padding = 50;
+    const padding = 60;
     const minX = (width - graphWidth) / 2 + padding;
     const maxX = (width + graphWidth) / 2 - padding;
     const minY = height * 0.15 + padding;
@@ -214,7 +247,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, format, optimizeLayout]);
 
-  // Render canvas
+  // Render canvas - using technique from original working version
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || optimizedNodes.length === 0) return;
@@ -230,17 +263,29 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     canvas.width = width;
     canvas.height = height;
     
-    // Use Lombardi style
     const colors = LOMBARDI_COLORS;
     
     // Fill background
     ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
     
-    // Draw title
+    // Get network bounds for scaling
+    const bounds = getNetworkBounds(optimizedNodes);
+    
+    // Calculate scale to fit network with proper padding (from original)
+    const padding = 0.08;
+    const scale = Math.min(
+      width * (1 - padding * 2) / (bounds.width || 1),
+      height * 0.70 / (bounds.height || 1)
+    );
+    
+    const translateX = (width / 2) - ((bounds.minX + bounds.width / 2) * scale);
+    const translateY = (height * 0.45) - ((bounds.minY + bounds.height / 2) * scale);
+    
+    // Draw title - LARGER with serif font
     if (title) {
       ctx.fillStyle = colors.text;
-      ctx.font = `bold ${width * 0.035}px 'Georgia', 'Garamond', serif`;
+      ctx.font = `bold ${width * 0.04}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.textAlign = 'center';
       ctx.fillText(title, width / 2, height * 0.06);
     }
@@ -248,8 +293,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Draw subtitle with word wrapping
     if (subtitle) {
       ctx.fillStyle = colors.textLight;
-      const subtitleFontSize = width * 0.016;
-      ctx.font = `${subtitleFontSize}px Georgia, Garamond, serif`;
+      const subtitleFontSize = width * 0.018;
+      ctx.font = `${subtitleFontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.textAlign = 'center';
       
       // Word wrap subtitle to fit within 85% of width
@@ -271,8 +316,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       }
       subtitleLines.push(line.trim());
       
-      // Limit to 3 lines max, add ellipsis if truncated
-      const maxLines = 3;
+      // Limit to 4 lines max
+      const maxLines = 4;
       if (subtitleLines.length > maxLines) {
         subtitleLines.length = maxLines;
         subtitleLines[maxLines - 1] = subtitleLines[maxLines - 1].slice(0, -3) + '...';
@@ -280,7 +325,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       
       // Draw each line
       const lineHeight = subtitleFontSize * 1.4;
-      const startY = height * 0.085;
+      const startY = height * 0.09;
       subtitleLines.forEach((l, i) => {
         ctx.fillText(l, width / 2, startY + i * lineHeight);
       });
@@ -289,8 +334,9 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Create node map for link drawing
     const nodeMap = new Map(optimizedNodes.map(n => [n.id, n]));
     
-    // Draw links with Lombardi-style curves
-    ctx.lineWidth = Math.max(1, width * 0.0006);
+    // Draw links with Lombardi-style curves (matching original)
+    const baseLineWidth = 1.5 * scale;
+    ctx.lineWidth = Math.max(1, baseLineWidth);
     
     optimizedLinks.forEach(link => {
       const source = typeof link.source === 'string' ? nodeMap.get(link.source) : link.source;
@@ -298,85 +344,108 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       
       if (!source || !target) return;
       
-      const dx = target.x - source.x;
-      const dy = target.y - source.y;
+      // Transform coordinates
+      const sx = source.x * scale + translateX;
+      const sy = source.y * scale + translateY;
+      const tx = target.x * scale + translateX;
+      const ty = target.y * scale + translateY;
+      
+      const dx = tx - sx;
+      const dy = ty - sy;
       const dist = Math.sqrt(dx * dx + dy * dy);
       
-      // Calculate control point for quadratic curve
-      const midX = (source.x + target.x) / 2;
-      const midY = (source.y + target.y) / 2;
-      const perpX = -dy / (dist || 1);
-      const perpY = dx / (dist || 1);
-      
-      // Curve offset - consistent direction
-      const curveDirection = source.id < target.id ? 1 : -1;
-      const curveOffset = dist * 0.15 * curveDirection;
-      
-      const cpX = midX + perpX * curveOffset;
-      const cpY = midY + perpY * curveOffset;
+      // Calculate control point for quadratic curve (matching original curvature)
+      const curvature = 1.0;
+      const dr = dist * curvature;
       
       ctx.beginPath();
       ctx.strokeStyle = colors.lines[link.status as keyof typeof colors.lines] || colors.lines.confirmed;
+      ctx.setLineDash([]);
       
-      // Set dash pattern for suspected/former
-      if (link.status === 'suspected') {
-        ctx.setLineDash([8, 4]);
-      } else if (link.status === 'former') {
-        ctx.setLineDash([4, 6]);
+      if (link.status === 'former') {
+        // Straight line for former relationships
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(tx, ty);
       } else {
-        ctx.setLineDash([]);
+        // Draw curved line matching original
+        ctx.moveTo(sx, sy);
+        
+        const midX = (sx + tx) / 2;
+        const midY = (sy + ty) / 2;
+        
+        // Perpendicular offset for curve
+        const offsetX = -dy / (dist || 1) * dr * 0.4;
+        const offsetY = dx / (dist || 1) * dr * 0.4;
+        
+        const controlX = midX + offsetX;
+        const controlY = midY + offsetY;
+        
+        ctx.quadraticCurveTo(controlX, controlY, tx, ty);
       }
       
-      ctx.moveTo(source.x, source.y);
-      ctx.quadraticCurveTo(cpX, cpY, target.x, target.y);
       ctx.stroke();
       
       // Draw arrowhead
-      const arrowSize = Math.max(4, width * 0.003);
-      const angle = Math.atan2(target.y - cpY, target.x - cpX);
+      const arrowSize = 5 * scale;
+      let angle;
       
-      ctx.setLineDash([]);
+      if (link.status === 'former') {
+        angle = Math.atan2(ty - sy, tx - sx);
+      } else {
+        // Calculate angle from control point to target
+        const midX = (sx + tx) / 2;
+        const midY = (sy + ty) / 2;
+        const offsetX = -dy / (dist || 1) * dr * 0.4;
+        const offsetY = dx / (dist || 1) * dr * 0.4;
+        const controlX = midX + offsetX;
+        const controlY = midY + offsetY;
+        angle = Math.atan2(ty - controlY, tx - controlX);
+      }
+      
       ctx.beginPath();
-      ctx.moveTo(target.x, target.y);
+      ctx.moveTo(tx, ty);
       ctx.lineTo(
-        target.x - arrowSize * Math.cos(angle - Math.PI / 6),
-        target.y - arrowSize * Math.sin(angle - Math.PI / 6)
+        tx - arrowSize * Math.cos(angle - Math.PI / 6),
+        ty - arrowSize * Math.sin(angle - Math.PI / 6)
       );
       ctx.lineTo(
-        target.x - arrowSize * Math.cos(angle + Math.PI / 6),
-        target.y - arrowSize * Math.sin(angle + Math.PI / 6)
+        tx - arrowSize * Math.cos(angle + Math.PI / 6),
+        ty - arrowSize * Math.sin(angle + Math.PI / 6)
       );
       ctx.closePath();
       ctx.fillStyle = colors.lines[link.status as keyof typeof colors.lines] || colors.lines.confirmed;
       ctx.fill();
     });
     
-    // Draw nodes
+    // Draw nodes (matching original style)
     optimizedNodes.forEach(node => {
-      const radius = Math.max(4, width * 0.004) * (0.8 + (node.importance || 0.5) * 0.4);
+      const x = node.x * scale + translateX;
+      const y = node.y * scale + translateY;
+      const radius = (5 + (node.importance || 0.5) * 10) * scale;
+      
       const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(node.type);
       const isUnknown = node.type === 'unknown' || !node.type;
       
       ctx.beginPath();
-      ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
       
       if (isHollow) {
-        // Hollow circle for organizations
-        ctx.fillStyle = colors.background;
+        // Hollow circle with fill for organizations
+        ctx.fillStyle = colors.nodes[node.type as keyof typeof colors.nodes] || colors.background;
         ctx.fill();
         ctx.strokeStyle = colors.text;
-        ctx.lineWidth = Math.max(1, width * 0.0008);
+        ctx.lineWidth = 1 * scale;
         ctx.stroke();
       } else if (isUnknown) {
         // Half-filled circle for unknown type
         ctx.fillStyle = colors.background;
         ctx.fill();
         ctx.strokeStyle = colors.text;
-        ctx.lineWidth = Math.max(1, width * 0.0008);
+        ctx.lineWidth = 1 * scale;
         ctx.stroke();
         // Fill right half
         ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, -Math.PI / 2, Math.PI / 2);
+        ctx.arc(x, y, radius, -Math.PI / 2, Math.PI / 2);
         ctx.fillStyle = colors.text;
         ctx.fill();
       } else {
@@ -385,24 +454,24 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         ctx.fill();
       }
       
-      // Draw label
+      // ALWAYS draw node labels with text stroke for readability (key fix from original)
       if (showLabels) {
-        const fontSize = Math.max(10, width * 0.01);
-        ctx.font = `${fontSize}px 'Georgia', 'Garamond', serif`;
+        const fontSize = 12 * scale;
+        ctx.font = `${fontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
         ctx.fillStyle = colors.text;
         ctx.textAlign = 'center';
         
-        // Text stroke for readability
+        // Text stroke for better readability (from original)
         ctx.strokeStyle = colors.background;
-        ctx.lineWidth = Math.max(2, width * 0.002);
-        ctx.strokeText(node.name, node.x, node.y + radius + fontSize + 4);
-        ctx.fillText(node.name, node.x, node.y + radius + fontSize + 4);
+        ctx.lineWidth = 3 * scale;
+        ctx.strokeText(node.name, x, y + radius + fontSize + 4);
+        ctx.fillText(node.name, x, y + radius + fontSize + 4);
       }
     });
     
-    // Draw notes at bottom
+    // Draw notes at bottom if provided
     if (notes) {
-      ctx.font = `${width * 0.014}px 'Georgia', 'Garamond', serif`;
+      ctx.font = `${width * 0.018}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.textAlign = 'center';
       ctx.fillStyle = colors.text;
       
@@ -411,7 +480,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       const words = notes.split(' ');
       let line = '';
       const lines: string[] = [];
-      let y = height * 0.85;
+      let y = height * 0.88;
       
       for (let i = 0; i < words.length; i++) {
         const testLine = line + words[i] + ' ';
@@ -427,30 +496,38 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       lines.push(line.trim());
       
       lines.forEach((l, i) => {
-        ctx.fillText(l, width / 2, y + i * (width * 0.02));
+        ctx.fillText(l, width / 2, y + i * (width * 0.025));
       });
     }
     
     // Draw legend
     if (showLegend) {
       const legendY = height * 0.92;
-      const legendFontSize = Math.max(10, width * 0.012);
-      const dotSize = Math.max(4, width * 0.004);
+      const legendFontSize = Math.max(12, width * 0.014);
+      const dotSize = Math.max(5, width * 0.005);
       
-      ctx.font = `${legendFontSize}px 'Georgia', 'Garamond', serif`;
+      ctx.font = `${legendFontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.textAlign = 'left';
       
       // Get unique entity types in the network
-      const entityTypes = Array.from(new Set(optimizedNodes.map(n => n.type)));
+      const entityTypes = Array.from(new Set(optimizedNodes.map(n => n.type || 'unknown')));
       const typeLabels: Record<string, string> = {
         person: 'Person',
         corporation: 'Corporation',
         organization: 'Organization',
         financial: 'Financial',
         government: 'Government',
+        unknown: 'Unknown',
       };
       
-      let legendX = width * 0.1;
+      // Calculate total legend width for centering
+      let totalWidth = 0;
+      entityTypes.forEach(type => {
+        const label = typeLabels[type] || type;
+        totalWidth += ctx.measureText(label).width + dotSize * 2 + 30;
+      });
+      
+      let legendX = (width - totalWidth) / 2 + dotSize;
       
       entityTypes.forEach(type => {
         const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(type);
@@ -492,13 +569,11 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Draw watermark
     if (showWatermark) {
       ctx.fillStyle = colors.textLight;
-      ctx.font = `${width * 0.015}px 'Georgia', 'Garamond', serif`;
+      ctx.font = `${width * 0.02}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.textAlign = 'center';
-      ctx.globalAlpha = 0.6;
       ctx.fillText('Created with SilentPartners.app — A Brazen Production', width / 2, height * 0.97);
-      ctx.globalAlpha = 1;
     }
-  }, [optimizedNodes, optimizedLinks, format, title, subtitle, notes, showLabels, showLegend, showWatermark]);
+  }, [optimizedNodes, optimizedLinks, format, title, subtitle, notes, showLabels, showLegend, showWatermark, getNetworkBounds]);
 
   // Re-render when options change
   useEffect(() => {
@@ -653,7 +728,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           <div>
             <Label className="mb-2 block">Preview</Label>
             <div 
-              className="border rounded-lg overflow-hidden bg-[#F5F2ED]"
+              className="border rounded-lg overflow-hidden bg-[#F9F6EE]"
               style={{ aspectRatio }}
             >
               <canvas
