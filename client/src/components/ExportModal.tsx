@@ -1,14 +1,14 @@
 /**
  * Export Modal for Silent Partners
- * Creates high-quality poster-style artwork exports with optimized graph layout
+ * Creates high-quality poster-style artwork exports that MATCH the live graph view
  * 
  * Key features:
- * - Dedicated force simulation for export (separate from live view)
- * - Optimized spacing to prevent node clustering
+ * - Captures actual node positions from the live SVG (no re-simulation)
+ * - Exports look identical to what you see on screen
  * - High-resolution canvas rendering
  * - Lombardi-style curved lines and typography
  * 
- * Updated 2026-02-02: Improved label rendering based on original working version
+ * Updated 2026-02-02: Fixed to capture live graph state instead of re-optimizing
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -24,7 +24,6 @@ import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
 import { entityColors } from '@/lib/store';
 import { toast } from 'sonner';
-import * as d3 from 'd3';
 
 interface ExportFormat {
   width: number;
@@ -69,10 +68,6 @@ interface ExportNode {
   importance?: number;
   x: number;
   y: number;
-  vx?: number;
-  vy?: number;
-  fx?: number | null;
-  fy?: number | null;
 }
 
 interface ExportLink {
@@ -90,21 +85,20 @@ interface ExportModalProps {
 
 export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
   const { network } = useNetwork();
-  const { theme } = useCanvasTheme();
+  const { theme, config: themeConfig } = useCanvasTheme();
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [format, setFormat] = useState('print-portrait');
   const [title, setTitle] = useState('');
   const [subtitle, setSubtitle] = useState('');
   const [notes, setNotes] = useState('');
-  // Labels are always shown (matching original working version)
   const [showLegend, setShowLegend] = useState(true);
   const [showWatermark, setShowWatermark] = useState(true);
   const [isRendering, setIsRendering] = useState(false);
   
-  // Optimized node positions for export
-  const [optimizedNodes, setOptimizedNodes] = useState<ExportNode[]>([]);
-  const [optimizedLinks, setOptimizedLinks] = useState<ExportLink[]>([]);
+  // Captured node positions from live graph
+  const [capturedNodes, setCapturedNodes] = useState<ExportNode[]>([]);
+  const [capturedLinks, setCapturedLinks] = useState<ExportLink[]>([]);
 
   // Initialize from network
   useEffect(() => {
@@ -114,7 +108,104 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }, [open, network.title, network.description]);
 
-  // Get network bounds for scaling (from original working version)
+  // Capture live graph positions from the SVG DOM
+  const captureLiveGraph = useCallback(() => {
+    if (network.entities.length === 0) return;
+    
+    setIsRendering(true);
+    
+    // Find the main SVG element
+    const svg = document.querySelector('svg.absolute.inset-0');
+    if (!svg) {
+      console.warn('Could not find main SVG element');
+      setIsRendering(false);
+      return;
+    }
+    
+    // Get all node containers and extract their positions
+    const nodeContainers = svg.querySelectorAll('g.node');
+    const nodePositions = new Map<string, { x: number; y: number }>();
+    
+    nodeContainers.forEach((container) => {
+      const transform = container.getAttribute('transform');
+      if (transform) {
+        // Parse transform="translate(x,y) scale(1)"
+        const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
+        if (match) {
+          const x = parseFloat(match[1]);
+          const y = parseFloat(match[2]);
+          
+          // Get entity ID from the node
+          const entityId = container.getAttribute('data-entity-id');
+          if (entityId) {
+            nodePositions.set(entityId, { x, y });
+          }
+        }
+      }
+    });
+    
+    // If we couldn't get positions from data-entity-id, try matching by name
+    if (nodePositions.size === 0) {
+      // Alternative: match by text content
+      nodeContainers.forEach((container) => {
+        const transform = container.getAttribute('transform');
+        const textEl = container.querySelector('text');
+        if (transform && textEl) {
+          const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
+          if (match) {
+            const x = parseFloat(match[1]);
+            const y = parseFloat(match[2]);
+            const name = textEl.textContent?.trim();
+            
+            // Find matching entity by name
+            const entity = network.entities.find(e => e.name === name);
+            if (entity) {
+              nodePositions.set(entity.id, { x, y });
+            }
+          }
+        }
+      });
+    }
+    
+    // Build nodes with captured positions
+    const nodes: ExportNode[] = network.entities.map((e, i) => {
+      const pos = nodePositions.get(e.id);
+      return {
+        id: e.id,
+        name: e.name,
+        type: e.type,
+        importance: e.importance || 0.5,
+        // Use captured position, or fall back to entity's stored position, or default
+        x: pos?.x ?? e.x ?? 400 + (i % 5) * 100,
+        y: pos?.y ?? e.y ?? 300 + Math.floor(i / 5) * 100,
+      };
+    });
+    
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    
+    const links: ExportLink[] = network.relationships
+      .filter(r => nodeMap.has(r.source) && nodeMap.has(r.target))
+      .map(r => ({
+        source: nodeMap.get(r.source)!,
+        target: nodeMap.get(r.target)!,
+        type: r.type,
+        label: r.label,
+        status: r.status,
+      }));
+    
+    setCapturedNodes(nodes);
+    setCapturedLinks(links);
+    setIsRendering(false);
+  }, [network]);
+
+  // Capture live graph when modal opens
+  useEffect(() => {
+    if (open) {
+      captureLiveGraph();
+    }
+  }, [open, captureLiveGraph]);
+
+  // Get network bounds for scaling
   const getNetworkBounds = useCallback((nodes: ExportNode[]) => {
     if (nodes.length === 0) {
       return { minX: 0, minY: 0, width: 100, height: 100 };
@@ -145,112 +236,10 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     };
   }, []);
 
-  // Run dedicated force simulation for export layout
-  const optimizeLayout = useCallback(() => {
-    if (network.entities.length === 0) return;
-    
-    setIsRendering(true);
-    
-    const formatConfig = EXPORT_FORMATS[format];
-    const width = formatConfig.width;
-    const height = formatConfig.height;
-    
-    // Calculate graph area (leaving room for title, notes, etc.)
-    const graphWidth = width * 0.9;
-    const graphHeight = height * 0.65;
-    const graphCenterX = width / 2;
-    const graphCenterY = height * 0.45;
-    
-    // Create nodes with initial positions spread out
-    const nodeCount = network.entities.length;
-    const nodes: ExportNode[] = network.entities.map((e, i) => {
-      // Spread nodes in a circle initially for better convergence
-      const angle = (i / nodeCount) * 2 * Math.PI;
-      const radius = Math.min(graphWidth, graphHeight) * 0.3;
-      return {
-        id: e.id,
-        name: e.name,
-        type: e.type,
-        importance: e.importance || 0.5,
-        x: graphCenterX + Math.cos(angle) * radius,
-        y: graphCenterY + Math.sin(angle) * radius,
-      };
-    });
-    
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-    
-    const links: ExportLink[] = network.relationships
-      .filter(r => nodeMap.has(r.source) && nodeMap.has(r.target))
-      .map(r => ({
-        source: r.source,
-        target: r.target,
-        type: r.type,
-        label: r.label,
-        status: r.status,
-      }));
-    
-    // Calculate optimal forces based on network size
-    const linkDistance = Math.max(120, Math.min(250, graphWidth / Math.sqrt(nodeCount)));
-    const chargeStrength = -Math.max(400, Math.min(1000, 600 * Math.sqrt(nodeCount / 10)));
-    const collisionRadius = Math.max(40, Math.min(80, graphWidth / nodeCount * 0.4));
-    
-    // Create force simulation optimized for poster layout
-    const simulation = d3.forceSimulation<ExportNode>(nodes)
-      .force('link', d3.forceLink<ExportNode, ExportLink>(links)
-        .id(d => d.id)
-        .distance(linkDistance)
-        .strength(0.3))
-      .force('charge', d3.forceManyBody<ExportNode>()
-        .strength(chargeStrength)
-        .distanceMax(graphWidth * 0.5))
-      .force('collide', d3.forceCollide<ExportNode>()
-        .radius(d => collisionRadius + (d.importance || 0.5) * 25)
-        .strength(0.9))
-      .force('center', d3.forceCenter(graphCenterX, graphCenterY))
-      .force('x', d3.forceX(graphCenterX).strength(0.05))
-      .force('y', d3.forceY(graphCenterY).strength(0.05))
-      .alphaDecay(0.02)
-      .velocityDecay(0.3);
-    
-    // Run simulation to completion
-    simulation.stop();
-    for (let i = 0; i < 300; i++) {
-      simulation.tick();
-    }
-    
-    // Constrain nodes to graph area
-    const padding = 60;
-    const minX = (width - graphWidth) / 2 + padding;
-    const maxX = (width + graphWidth) / 2 - padding;
-    const minY = height * 0.15 + padding;
-    const maxY = height * 0.75 - padding;
-    
-    nodes.forEach(node => {
-      node.x = Math.max(minX, Math.min(maxX, node.x));
-      node.y = Math.max(minY, Math.min(maxY, node.y));
-    });
-    
-    setOptimizedNodes([...nodes]);
-    setOptimizedLinks(links.map(l => ({
-      ...l,
-      source: nodeMap.get(typeof l.source === 'string' ? l.source : l.source.id)!,
-      target: nodeMap.get(typeof l.target === 'string' ? l.target : l.target.id)!,
-    })));
-    
-    setIsRendering(false);
-  }, [network, format]);
-
-  // Optimize layout when modal opens or format changes
-  useEffect(() => {
-    if (open) {
-      optimizeLayout();
-    }
-  }, [open, format, optimizeLayout]);
-
-  // Render canvas - using technique from original working version
+  // Render canvas with captured positions
   const renderCanvas = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || optimizedNodes.length === 0) return;
+    if (!canvas || capturedNodes.length === 0) return;
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -270,9 +259,9 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     ctx.fillRect(0, 0, width, height);
     
     // Get network bounds for scaling
-    const bounds = getNetworkBounds(optimizedNodes);
+    const bounds = getNetworkBounds(capturedNodes);
     
-    // Calculate scale to fit network with proper padding (from original)
+    // Calculate scale to fit network with proper padding
     const padding = 0.08;
     const scale = Math.min(
       width * (1 - padding * 2) / (bounds.width || 1),
@@ -282,7 +271,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const translateX = (width / 2) - ((bounds.minX + bounds.width / 2) * scale);
     const translateY = (height * 0.45) - ((bounds.minY + bounds.height / 2) * scale);
     
-    // Draw title - LARGER with serif font
+    // Draw title
     if (title) {
       ctx.fillStyle = colors.text;
       ctx.font = `bold ${width * 0.04}px 'Garamond', 'Georgia', 'Baskerville', serif`;
@@ -297,7 +286,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.font = `${subtitleFontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.textAlign = 'center';
       
-      // Word wrap subtitle to fit within 85% of width
       const maxSubtitleWidth = width * 0.85;
       const words = subtitle.split(' ');
       let line = '';
@@ -316,14 +304,12 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       }
       subtitleLines.push(line.trim());
       
-      // Limit to 4 lines max
       const maxLines = 4;
       if (subtitleLines.length > maxLines) {
         subtitleLines.length = maxLines;
         subtitleLines[maxLines - 1] = subtitleLines[maxLines - 1].slice(0, -3) + '...';
       }
       
-      // Draw each line
       const lineHeight = subtitleFontSize * 1.4;
       const startY = height * 0.09;
       subtitleLines.forEach((l, i) => {
@@ -332,13 +318,13 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
     
     // Create node map for link drawing
-    const nodeMap = new Map(optimizedNodes.map(n => [n.id, n]));
+    const nodeMap = new Map(capturedNodes.map(n => [n.id, n]));
     
-    // Draw links with Lombardi-style curves (matching original)
+    // Draw links with Lombardi-style curves
     const baseLineWidth = 1.5 * scale;
     ctx.lineWidth = Math.max(1, baseLineWidth);
     
-    optimizedLinks.forEach(link => {
+    capturedLinks.forEach(link => {
       const source = typeof link.source === 'string' ? nodeMap.get(link.source) : link.source;
       const target = typeof link.target === 'string' ? nodeMap.get(link.target) : link.target;
       
@@ -354,7 +340,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       const dy = ty - sy;
       const dist = Math.sqrt(dx * dx + dy * dy);
       
-      // Calculate control point for quadratic curve (matching original curvature)
+      // Calculate control point for quadratic curve
       const curvature = 1.0;
       const dr = dist * curvature;
       
@@ -363,17 +349,14 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.setLineDash([]);
       
       if (link.status === 'former') {
-        // Straight line for former relationships
         ctx.moveTo(sx, sy);
         ctx.lineTo(tx, ty);
       } else {
-        // Draw curved line matching original
         ctx.moveTo(sx, sy);
         
         const midX = (sx + tx) / 2;
         const midY = (sy + ty) / 2;
         
-        // Perpendicular offset for curve
         const offsetX = -dy / (dist || 1) * dr * 0.4;
         const offsetY = dx / (dist || 1) * dr * 0.4;
         
@@ -392,7 +375,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       if (link.status === 'former') {
         angle = Math.atan2(ty - sy, tx - sx);
       } else {
-        // Calculate angle from control point to target
         const midX = (sx + tx) / 2;
         const midY = (sy + ty) / 2;
         const offsetX = -dy / (dist || 1) * dr * 0.4;
@@ -417,8 +399,8 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.fill();
     });
     
-    // Draw nodes (matching original style)
-    optimizedNodes.forEach(node => {
+    // Draw nodes
+    capturedNodes.forEach(node => {
       const x = node.x * scale + translateX;
       const y = node.y * scale + translateY;
       const radius = (5 + (node.importance || 0.5) * 10) * scale;
@@ -430,41 +412,35 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       
       if (isHollow) {
-        // Hollow circle with fill for organizations
         ctx.fillStyle = colors.nodes[node.type as keyof typeof colors.nodes] || colors.background;
         ctx.fill();
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 1 * scale;
         ctx.stroke();
       } else if (isUnknown) {
-        // Half-filled circle for unknown type
         ctx.fillStyle = colors.background;
         ctx.fill();
         ctx.strokeStyle = colors.text;
         ctx.lineWidth = 1 * scale;
         ctx.stroke();
-        // Fill right half
         ctx.beginPath();
         ctx.arc(x, y, radius, -Math.PI / 2, Math.PI / 2);
         ctx.fillStyle = colors.text;
         ctx.fill();
       } else {
-        // Solid circle for people
         ctx.fillStyle = colors.text;
         ctx.fill();
       }
       
-      // ALWAYS draw node labels with text stroke for readability (from original working version)
-      // Labels are drawn unconditionally - this matches the original behavior
+      // Draw node labels with text stroke for readability
       const fontSize = 12 * scale;
       ctx.font = `${fontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.fillStyle = colors.text;
       ctx.textAlign = 'center';
       
-      // Text stroke for better readability (from original)
       ctx.strokeStyle = colors.background;
       ctx.lineWidth = 3 * scale;
-      ctx.strokeText(node.name, x, y + 22 * scale);  // Match original positioning
+      ctx.strokeText(node.name, x, y + 22 * scale);
       ctx.fillText(node.name, x, y + 22 * scale);
     });
     
@@ -474,7 +450,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.textAlign = 'center';
       ctx.fillStyle = colors.text;
       
-      // Word wrap notes
       const maxWidth = width * 0.8;
       const words = notes.split(' ');
       let line = '';
@@ -508,8 +483,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.font = `${legendFontSize}px 'Garamond', 'Georgia', 'Baskerville', serif`;
       ctx.textAlign = 'left';
       
-      // Get unique entity types in the network
-      const entityTypes = Array.from(new Set(optimizedNodes.map(n => n.type || 'unknown')));
+      const entityTypes = Array.from(new Set(capturedNodes.map(n => n.type || 'unknown')));
       const typeLabels: Record<string, string> = {
         person: 'Person',
         corporation: 'Corporation',
@@ -519,7 +493,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         unknown: 'Unknown',
       };
       
-      // Calculate total legend width for centering
       let totalWidth = 0;
       entityTypes.forEach(type => {
         const label = typeLabels[type] || type;
@@ -532,7 +505,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
         const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(type);
         const isUnknown = type === 'unknown' || !type;
         
-        // Draw dot
         ctx.beginPath();
         ctx.arc(legendX + dotSize, legendY, dotSize, 0, Math.PI * 2);
         if (isHollow) {
@@ -542,7 +514,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           ctx.lineWidth = 1;
           ctx.stroke();
         } else if (isUnknown) {
-          // Half-filled circle for unknown
           ctx.fillStyle = colors.background;
           ctx.fill();
           ctx.strokeStyle = colors.text;
@@ -557,7 +528,6 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           ctx.fill();
         }
         
-        // Draw label
         ctx.fillStyle = colors.textLight;
         const label = typeLabels[type] || type;
         ctx.fillText(label, legendX + dotSize * 2 + 8, legendY + dotSize / 2);
@@ -572,14 +542,14 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       ctx.textAlign = 'center';
       ctx.fillText('Created with SilentPartners.app — A Brazen Production', width / 2, height * 0.97);
     }
-  }, [optimizedNodes, optimizedLinks, format, title, subtitle, notes, showLegend, showWatermark, getNetworkBounds]);
+  }, [capturedNodes, capturedLinks, format, title, subtitle, notes, showLegend, showWatermark, getNetworkBounds]);
 
   // Re-render when options change
   useEffect(() => {
-    if (open && optimizedNodes.length > 0) {
+    if (open && capturedNodes.length > 0) {
       renderCanvas();
     }
-  }, [open, optimizedNodes, renderCanvas]);
+  }, [open, capturedNodes, renderCanvas]);
 
   // Download PNG
   const handleDownload = () => {
@@ -675,73 +645,71 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
               />
             </div>
             
-            <div className="space-y-2">
+            <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-legend"
                   checked={showLegend}
-                  onCheckedChange={(checked) => setShowLegend(checked === true)}
+                  onCheckedChange={(checked) => setShowLegend(checked as boolean)}
                 />
-                <label htmlFor="show-legend" className="text-sm">Show Legend</label>
+                <Label htmlFor="show-legend" className="cursor-pointer">Show Legend</Label>
               </div>
+              
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="show-watermark"
                   checked={showWatermark}
-                  onCheckedChange={(checked) => setShowWatermark(checked === true)}
+                  onCheckedChange={(checked) => setShowWatermark(checked as boolean)}
                 />
-                <label htmlFor="show-watermark" className="text-sm">Show Watermark</label>
+                <Label htmlFor="show-watermark" className="cursor-pointer">Show Watermark</Label>
               </div>
             </div>
             
-            <Button 
-              variant="outline" 
-              onClick={optimizeLayout}
+            <Button
+              variant="outline"
+              onClick={captureLiveGraph}
               disabled={isRendering}
               className="w-full"
             >
               {isRendering ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Optimizing Layout...
+                  Capturing...
                 </>
               ) : (
                 <>
                   <RefreshCw className="w-4 h-4 mr-2" />
-                  Re-optimize Layout
+                  Re-capture Layout
                 </>
               )}
             </Button>
           </div>
           
           {/* Right: Preview */}
-          <div>
-            <Label className="mb-2 block">Preview</Label>
+          <div className="space-y-4">
+            <Label>Preview</Label>
             <div 
               className="border rounded-lg overflow-hidden bg-[#F9F6EE]"
-              style={{ aspectRatio }}
+              style={{ aspectRatio: aspectRatio }}
             >
               <canvas
                 ref={canvasRef}
-                style={{ 
-                  width: '100%', 
-                  height: '100%',
-                  display: 'block'
-                }}
+                className="w-full h-full"
               />
             </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {optimizedNodes.length} entities, {optimizedLinks.length} relationships
-            </p>
+            <div className="text-sm text-muted-foreground text-center">
+              {capturedNodes.length} entities, {capturedLinks.length} relationships
+            </div>
           </div>
         </div>
         
+        {/* Actions */}
         <div className="flex justify-end gap-2 mt-4">
-          <Button onClick={handleDownload} disabled={optimizedNodes.length === 0}>
+          <Button variant="default" onClick={handleDownload}>
             <Download className="w-4 h-4 mr-2" />
             Download PNG
           </Button>
-          <Button variant="outline" onClick={handleCopy} disabled={optimizedNodes.length === 0}>
+          <Button variant="outline" onClick={handleCopy}>
             <Copy className="w-4 h-4 mr-2" />
             Copy to Clipboard
           </Button>

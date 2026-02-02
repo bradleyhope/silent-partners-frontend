@@ -542,6 +542,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const nodeEnter = nodeSelection.enter()
       .append('g')
       .attr('class', 'node')
+      .attr('data-entity-id', d => d.id)  // For export capture
       .attr('opacity', 0)
       .attr('transform', d => `translate(${d.x},${d.y}) scale(0.3)`)
       .style('cursor', 'pointer')
