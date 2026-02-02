@@ -208,7 +208,12 @@ function networkReducer(state: NetworkState, action: NetworkAction): NetworkStat
         selectedEntityId: state.selectedEntityId === action.payload ? null : state.selectedEntityId,
       };
     
-    case 'ADD_RELATIONSHIP':
+    case 'ADD_RELATIONSHIP': {
+      // Prevent self-referential relationships
+      if (action.payload.source === action.payload.target) {
+        console.warn('Prevented self-referential relationship:', action.payload);
+        return state;
+      }
       return {
         ...state,
         network: {
@@ -216,9 +221,16 @@ function networkReducer(state: NetworkState, action: NetworkAction): NetworkStat
           relationships: [...state.network.relationships, action.payload],
         },
       };
+    }
     
     case 'ADD_OR_MERGE_RELATIONSHIP': {
       const { source, target, type } = action.payload;
+      
+      // Prevent self-referential relationships
+      if (source === target) {
+        console.warn('Prevented self-referential relationship:', action.payload);
+        return state;
+      }
       
       // Check if relationship already exists (same source, target, and type)
       const existingRel = state.network.relationships.find(r => 
