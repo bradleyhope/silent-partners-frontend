@@ -20,3 +20,10 @@ export * from './types';
 
 // Re-export ChatInput ref type
 export type { ChatInputRef } from './ChatInput';
+
+// Scaffold components
+export { ExpansionButtons } from './ExpansionButtons';
+export type { ExpansionPath } from './ExpansionButtons';
+
+// Hooks
+export { useScaffold } from './hooks/useScaffold';
