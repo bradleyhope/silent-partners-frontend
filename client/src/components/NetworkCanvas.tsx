@@ -40,7 +40,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { network, selectedEntityId, selectEntity, updateEntity, dispatch } = useNetwork();
-  const { theme, config: themeConfig, showAllLabels, getEntityColor } = useCanvasTheme();
+  const { theme, config: themeConfig, showAllLabels, showArrows, getEntityColor } = useCanvasTheme();
   
   // Track previous entities/relationships for animation
   const prevEntitiesRef = useRef<Set<string>>(new Set());
@@ -322,6 +322,26 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
     linkSelection.exit().transition().duration(300).attr('stroke-opacity', 0).remove();
 
+    // Add arrow marker definition if arrows are enabled
+    const defs = svg.select('defs').empty() ? svg.append('defs') : svg.select('defs');
+    if (showArrows) {
+      // Remove existing markers and recreate
+      defs.selectAll('marker').remove();
+      defs.append('marker')
+        .attr('id', 'arrow-marker')
+        .attr('viewBox', '0 -5 10 10')
+        .attr('refX', 20)  // Offset from node center
+        .attr('refY', 0)
+        .attr('markerWidth', 6)
+        .attr('markerHeight', 6)
+        .attr('orient', 'auto')
+        .append('path')
+        .attr('d', 'M0,-5L10,0L0,5')
+        .attr('fill', themeConfig.linkStroke);
+    } else {
+      defs.selectAll('marker').remove();
+    }
+
     const linkEnter = linkSelection.enter()
       .append('path')
       .attr('class', 'link-path')
@@ -338,6 +358,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         if (conf < 0.7) return '6,3';
         return 'none';
       })
+      .attr('marker-end', showArrows ? 'url(#arrow-marker)' : null)
       .style('cursor', 'pointer');
 
     linkEnter.transition()

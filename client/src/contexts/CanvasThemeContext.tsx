@@ -391,6 +391,8 @@ interface CanvasThemeContextType {
   setTheme: (theme: CanvasTheme) => void;
   showAllLabels: boolean;
   setShowAllLabels: (show: boolean) => void;
+  showArrows: boolean;
+  setShowArrows: (show: boolean) => void;
   getEntityColor: (entityType: string) => string;
 }
 
@@ -399,6 +401,7 @@ const CanvasThemeContext = createContext<CanvasThemeContextType | null>(null);
 export function CanvasThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<CanvasTheme>('lombardi');
   const [showAllLabels, setShowAllLabels] = useState(false);
+  const [showArrows, setShowArrows] = useState(false);
 
   const getEntityColorForTheme = (entityType: string) => {
     return getEntityColor(theme, entityType);
@@ -412,6 +415,8 @@ export function CanvasThemeProvider({ children }: { children: ReactNode }) {
         setTheme,
         showAllLabels,
         setShowAllLabels,
+        showArrows,
+        setShowArrows,
         getEntityColor: getEntityColorForTheme,
       }}
     >

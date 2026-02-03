@@ -16,7 +16,7 @@ interface ViewPanelProps {
 }
 
 export default function ViewPanel({ isOpen, onOpenChange }: ViewPanelProps) {
-  const { theme, setTheme, showAllLabels, setShowAllLabels } = useCanvasTheme();
+  const { theme, setTheme, showAllLabels, setShowAllLabels, showArrows, setShowArrows } = useCanvasTheme();
 
   return (
     <Collapsible open={isOpen} onOpenChange={onOpenChange}>
@@ -55,6 +55,17 @@ export default function ViewPanel({ isOpen, onOpenChange }: ViewPanelProps) {
             className="w-4 h-4 rounded border-border cursor-pointer"
             checked={showAllLabels}
             onChange={(e) => setShowAllLabels(e.target.checked)}
+          />
+        </div>
+
+        {/* Show arrows toggle */}
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-medium">Show Arrows</Label>
+          <input
+            type="checkbox"
+            className="w-4 h-4 rounded border-border cursor-pointer"
+            checked={showArrows}
+            onChange={(e) => setShowArrows(e.target.checked)}
           />
         </div>
 
