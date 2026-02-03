@@ -266,10 +266,14 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     setIsRendering(false);
   }, [network, themeConfig]);
 
-  // Capture live graph when modal opens
+  // Capture live graph when modal opens (with delay for animation)
   useEffect(() => {
     if (open) {
-      captureLiveGraph();
+      // Small delay to ensure modal is fully rendered and SVG is accessible
+      const timer = setTimeout(() => {
+        captureLiveGraph();
+      }, 150);
+      return () => clearTimeout(timer);
     }
   }, [open, captureLiveGraph]);
 
@@ -885,21 +889,21 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           </div>
         </div>
         
-        {/* Actions */}
-        <div className="flex justify-end gap-2 mt-4">
-          <Button variant="default" onClick={handleDownload}>
+        {/* Actions - wrap on smaller screens */}
+        <div className="flex flex-wrap justify-end gap-2 mt-4">
+          <Button variant="default" onClick={handleDownload} className="min-w-fit">
             <Download className="w-4 h-4 mr-2" />
             Download PNG
           </Button>
-          <Button variant="outline" onClick={handleDownloadSVG}>
+          <Button variant="outline" onClick={handleDownloadSVG} className="min-w-fit">
             <FileCode className="w-4 h-4 mr-2" />
             Download SVG
           </Button>
-          <Button variant="outline" onClick={handleCopy}>
+          <Button variant="outline" onClick={handleCopy} className="min-w-fit">
             <Copy className="w-4 h-4 mr-2" />
             Copy to Clipboard
           </Button>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="min-w-fit">
             Close
           </Button>
         </div>

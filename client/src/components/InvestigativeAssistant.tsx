@@ -37,6 +37,7 @@ import { generateId, Entity, Relationship } from '@/lib/store';
 import claimsApi, { Claim } from '@/lib/claims-api';
 import { ChatMessageBubble, ChatMessage } from './ChatMessageBubble';
 import { useOrchestrator } from '@/contexts/OrchestratorContext';
+import { ExpansionButtons, ExpansionPath, useScaffold } from './assistant';
 
 // ============================================
 // Types and Interfaces
@@ -385,6 +386,10 @@ export default function InvestigativeAssistant({
   // Entity tracking for current session
   const entityIdMap = useRef<Map<string, string>>(new Map());
   const sessionEntities = useRef<Map<string, Entity>>(new Map());
+  
+  // Scaffold state for guided exploration
+  const [expansionPaths, setExpansionPaths] = useState<ExpansionPath[]>([]);
+  const [loadingExpansionId, setLoadingExpansionId] = useState<string | null>(null);
   
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -873,6 +878,32 @@ export default function InvestigativeAssistant({
     }
   }, [onSuggestionClick]);
   
+  // Handle expansion path selection (guided exploration)
+  const handleExpansionSelect = useCallback(async (path: ExpansionPath) => {
+    setLoadingExpansionId(path.id);
+    setExpansionPaths([]); // Clear paths while loading
+    
+    // Use the expansion prompt as input and send
+    setInputValue(path.prompt);
+    
+    // Add user message showing what they clicked
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: `**${path.title}**\n\n${path.description}`,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Clear loading state and trigger send
+    setLoadingExpansionId(null);
+    
+    // Use setTimeout to ensure state is updated
+    setTimeout(() => {
+      handleSend();
+    }, 100);
+  }, [handleSend]);
+  
   const hasContext = context.topic || context.domain || context.focus || context.keyQuestions.length > 0;
   
   if (!isOpen) return null;
@@ -1252,6 +1283,18 @@ export default function InvestigativeAssistant({
                   )}
                 </div>
               </div>
+            )}
+            
+            {/* Expansion Buttons - Guided Exploration */}
+            {expansionPaths.length > 0 && !isProcessing && (
+              <ExpansionButtons
+                paths={expansionPaths}
+                onSelect={handleExpansionSelect}
+                onCustomQuery={() => textareaRef.current?.focus()}
+                disabled={isProcessing}
+                loading={!!loadingExpansionId}
+                loadingPathId={loadingExpansionId || undefined}
+              />
             )}
           </div>
         </ScrollArea>
