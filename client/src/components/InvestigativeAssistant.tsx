@@ -634,6 +634,96 @@ export default function InvestigativeAssistant({
     entityIdMap.current.clear();
     sessionEntities.current.clear();
     
+    // SCAFFOLD-FIRST: Use scaffold endpoint when graph is empty or sparse
+    const shouldUseScaffold = network.entities.length < 3;
+    
+    if (shouldUseScaffold) {
+      try {
+        setProgressStatus({ step: 1, total: 2, goal: 'Generating investigation scaffold...' });
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        
+        const response = await fetch(`${apiBase}/api/v2/agent-v2/scaffold`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query,
+            existing_entities: network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
+            existing_relationships: network.relationships.map(r => ({ source: r.source, target: r.target, type: r.type })),
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        setProgressStatus({ step: 2, total: 2, goal: 'Adding entities to graph...' });
+        
+        if (network.title === 'Untitled Network' && result.title) {
+          dispatch({ type: 'UPDATE_NETWORK', payload: { title: result.title, description: result.description } });
+        }
+        
+        const scaffoldEntityMap = new Map<string, string>();
+        let entitiesAdded = 0;
+        for (const entity of result.entities || []) {
+          const newId = generateId();
+          scaffoldEntityMap.set(entity.name.toLowerCase(), newId);
+          const newEntity: Entity = {
+            id: newId,
+            name: entity.name,
+            type: entity.type || 'unknown',
+            description: entity.description || '',
+            importance: entity.importance || 5,
+            source_type: 'scaffold',
+            source_query: query,
+            created_at: new Date().toISOString(),
+          };
+          dispatch({ type: 'ADD_ENTITY', payload: newEntity });
+          entitiesAdded++;
+        }
+        
+        let relationshipsAdded = 0;
+        for (const rel of result.relationships || []) {
+          const sourceId = scaffoldEntityMap.get(rel.source.toLowerCase());
+          const targetId = scaffoldEntityMap.get(rel.target.toLowerCase());
+          if (sourceId && targetId) {
+            const newRel: Relationship = {
+              id: generateId(),
+              source: sourceId,
+              target: targetId,
+              type: rel.type || 'related_to',
+              label: rel.description || rel.type,
+              created_at: new Date().toISOString(),
+            };
+            dispatch({ type: 'ADD_RELATIONSHIP', payload: newRel });
+            relationshipsAdded++;
+          }
+        }
+        
+        if (result.expansion_paths && result.expansion_paths.length > 0) {
+          setExpansionPaths(result.expansion_paths);
+        }
+        
+        const assistantMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: `**Investigation Scaffold Generated** \u2705\n\n${result.description || 'Initial network mapped.'}\n\n- **${entitiesAdded}** entities added\n- **${relationshipsAdded}** relationships mapped\n\n${result.expansion_paths?.length > 0 ? '**Choose a direction below to expand the investigation.**' : ''}`,
+          timestamp: new Date().toISOString(),
+          metadata: { entitiesFound: entitiesAdded, relationshipsFound: relationshipsAdded, scaffoldGenerated: true },
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+        toast.success(`Generated scaffold with ${entitiesAdded} entities`);
+        setIsProcessing(false);
+        setProgressStatus(null);
+        return;
+      } catch (error) {
+        console.error('Scaffold generation failed:', error);
+        toast.error('Scaffold failed, using standard research...');
+        // Fall through to regular orchestrator
+      }
+    }
+    
     // Track results
     let entitiesFound = 0;
     let relationshipsFound = 0;
@@ -882,9 +972,7 @@ export default function InvestigativeAssistant({
   const handleExpansionSelect = useCallback(async (path: ExpansionPath) => {
     setLoadingExpansionId(path.id);
     setExpansionPaths([]); // Clear paths while loading
-    
-    // Use the expansion prompt as input and send
-    setInputValue(path.prompt);
+    setIsProcessing(true);
     
     // Add user message showing what they clicked
     const userMessage: ChatMessage = {
@@ -895,14 +983,105 @@ export default function InvestigativeAssistant({
     };
     setMessages(prev => [...prev, userMessage]);
     
-    // Clear loading state and trigger send
-    setLoadingExpansionId(null);
-    
-    // Use setTimeout to ensure state is updated
-    setTimeout(() => {
-      handleSend();
-    }, 100);
-  }, [handleSend]);
+    try {
+      setProgressStatus({ step: 1, total: 2, goal: `Expanding: ${path.title}...` });
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      
+      const response = await fetch(`${apiBase}/api/v2/agent-v2/expand`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: path.prompt,
+          existing_entities: network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
+          existing_relationships: network.relationships.map(r => ({ source: r.source, target: r.target, type: r.type })),
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+      
+      const result = await response.json();
+      setProgressStatus({ step: 2, total: 2, goal: 'Adding new entities...' });
+      
+      // Create entity ID map including existing entities
+      const entityMap = new Map<string, string>();
+      network.entities.forEach(e => entityMap.set(e.name.toLowerCase(), e.id));
+      
+      let entitiesAdded = 0;
+      for (const entity of result.entities || []) {
+        if (!entityMap.has(entity.name.toLowerCase())) {
+          const newId = generateId();
+          entityMap.set(entity.name.toLowerCase(), newId);
+          const newEntity: Entity = {
+            id: newId,
+            name: entity.name,
+            type: entity.type || 'unknown',
+            description: entity.description || '',
+            importance: entity.importance || 5,
+            source_type: 'expansion',
+            source_query: path.prompt,
+            created_at: new Date().toISOString(),
+          };
+          dispatch({ type: 'ADD_ENTITY', payload: newEntity });
+          entitiesAdded++;
+        }
+      }
+      
+      let relationshipsAdded = 0;
+      for (const rel of result.relationships || []) {
+        const sourceId = entityMap.get(rel.source.toLowerCase());
+        const targetId = entityMap.get(rel.target.toLowerCase());
+        if (sourceId && targetId) {
+          const exists = network.relationships.some(
+            r => r.source === sourceId && r.target === targetId && r.type === (rel.type || 'related_to')
+          );
+          if (!exists) {
+            const newRel: Relationship = {
+              id: generateId(),
+              source: sourceId,
+              target: targetId,
+              type: rel.type || 'related_to',
+              label: rel.description || rel.type,
+              created_at: new Date().toISOString(),
+            };
+            dispatch({ type: 'ADD_RELATIONSHIP', payload: newRel });
+            relationshipsAdded++;
+          }
+        }
+      }
+      
+      if (result.expansion_paths && result.expansion_paths.length > 0) {
+        setExpansionPaths(result.expansion_paths);
+      }
+      
+      const assistantMessage: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: `**${path.title}** - Expansion Complete \u2705\n\n${result.description || 'Network expanded.'}\n\n- **${entitiesAdded}** new entities\n- **${relationshipsAdded}** new relationships\n\n${result.expansion_paths?.length > 0 ? '**Continue exploring below.**' : ''}`,
+        timestamp: new Date().toISOString(),
+        metadata: { entitiesFound: entitiesAdded, relationshipsFound: relationshipsAdded },
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+      toast.success(`Added ${entitiesAdded} entities, ${relationshipsAdded} relationships`);
+      
+    } catch (error) {
+      console.error('Expansion failed:', error);
+      const errorMessage: ChatMessage = {
+        id: `error-${Date.now()}`,
+        role: 'system',
+        content: `Expansion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      toast.error('Expansion failed');
+    } finally {
+      setLoadingExpansionId(null);
+      setIsProcessing(false);
+      setProgressStatus(null);
+    }
+  }, [network, dispatch, setIsProcessing]);
   
   const hasContext = context.topic || context.domain || context.focus || context.keyQuestions.length > 0;
   
