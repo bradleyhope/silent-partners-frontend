@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, Copy, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
+import { Download, Copy, RefreshCw, Loader2, AlertTriangle, FileCode } from 'lucide-react';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme } from '@/contexts/CanvasThemeContext';
 import { toast } from 'sonner';
@@ -122,24 +122,48 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       const transform = nodeEl.getAttribute('transform');
       if (!transform) return;
       
-      const match = transform.match(/translate\(([^,]+),([^)]+)\)/);
-      if (!match) return;
+      // Parse transform - handle both "translate(x,y)" and "translate(x,y) scale(s)"
+      const translateMatch = transform.match(/translate\(([\d.-]+)[,\s]+([\d.-]+)\)/);
+      if (!translateMatch) return;
       
-      const x = parseFloat(match[1]);
-      const y = parseFloat(match[2]);
+      const x = parseFloat(translateMatch[1]);
+      const y = parseFloat(translateMatch[2]);
       
       const entityId = nodeEl.getAttribute('data-entity-id');
       const entity = network.entities.find(e => e.id === entityId);
       if (!entity) return;
       
       // Get the circle element to capture exact visual properties
-      const circle = nodeEl.querySelector('circle.node-circle');
+      const circle = nodeEl.querySelector('circle.node-circle') as SVGCircleElement | null;
       if (!circle) return;
       
-      const radius = parseFloat(circle.getAttribute('r') || '8');
-      const fill = circle.getAttribute('fill') || themeConfig.nodeFill;
-      const stroke = circle.getAttribute('stroke') || themeConfig.nodeStroke;
-      const strokeWidth = parseFloat(circle.getAttribute('stroke-width') || '1.5');
+      // Get radius - try attribute first, then computed style
+      let radius = parseFloat(circle.getAttribute('r') || '0');
+      if (radius === 0) {
+        const computedStyle = window.getComputedStyle(circle);
+        radius = parseFloat(computedStyle.r) || 8;
+      }
+      
+      // Get fill - try attribute first, then computed style
+      let fill = circle.getAttribute('fill');
+      if (!fill) {
+        const computedStyle = window.getComputedStyle(circle);
+        fill = computedStyle.fill || themeConfig.nodeFill;
+      }
+      
+      // Get stroke - try attribute first, then computed style
+      let stroke = circle.getAttribute('stroke');
+      if (!stroke) {
+        const computedStyle = window.getComputedStyle(circle);
+        stroke = computedStyle.stroke || themeConfig.nodeStroke;
+      }
+      
+      // Get stroke-width
+      let strokeWidth = parseFloat(circle.getAttribute('stroke-width') || '0');
+      if (strokeWidth === 0) {
+        const computedStyle = window.getComputedStyle(circle);
+        strokeWidth = parseFloat(computedStyle.strokeWidth) || 1.5;
+      }
       
       // Determine if hollow based on fill matching background
       const isHollow = fill === themeConfig.background || fill === themeConfig.nodeFill;
@@ -163,10 +187,33 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const linkElements = svg.querySelectorAll('path.link-path');
     
     linkElements.forEach((linkEl) => {
-      const pathData = linkEl.getAttribute('d') || '';
-      const stroke = linkEl.getAttribute('stroke') || themeConfig.linkStroke;
-      const strokeWidth = parseFloat(linkEl.getAttribute('stroke-width') || '1.5');
-      const strokeDasharray = linkEl.getAttribute('stroke-dasharray') || 'none';
+      const pathEl = linkEl as SVGPathElement;
+      const pathData = pathEl.getAttribute('d') || '';
+      
+      // Get stroke - try attribute first, then computed style
+      let stroke = pathEl.getAttribute('stroke');
+      if (!stroke) {
+        const computedStyle = window.getComputedStyle(pathEl);
+        stroke = computedStyle.stroke || themeConfig.linkStroke;
+      }
+      
+      // Get stroke-width
+      let strokeWidth = parseFloat(pathEl.getAttribute('stroke-width') || '0');
+      if (strokeWidth === 0) {
+        const computedStyle = window.getComputedStyle(pathEl);
+        strokeWidth = parseFloat(computedStyle.strokeWidth) || 1.5;
+      }
+      
+      // Get stroke-dasharray - try attribute first, then computed style
+      let strokeDasharray = pathEl.getAttribute('stroke-dasharray');
+      if (!strokeDasharray || strokeDasharray === '') {
+        const computedStyle = window.getComputedStyle(pathEl);
+        strokeDasharray = computedStyle.strokeDasharray || 'none';
+      }
+      // Normalize 'none' values
+      if (strokeDasharray === 'none' || strokeDasharray === '' || strokeDasharray === '0') {
+        strokeDasharray = 'none';
+      }
       
       // Parse path to get source and target coordinates
       // Path format: M sx,sy Q cx,cy tx,ty or M sx,sy L tx,ty
@@ -263,15 +310,48 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const offsetX = (width - graphWidth * scale) / 2 - graphBounds.minX * scale;
     const offsetY = topMargin + (availableHeight - graphHeight * scale) / 2 - graphBounds.minY * scale;
     
-    // Draw title using theme font
+    // Draw title using theme font with word wrap for long titles
+    let titleEndY = height * 0.05;
     if (title) {
       ctx.fillStyle = themeConfig.textColor;
-      ctx.font = `bold ${width * 0.035}px ${themeConfig.fontFamily}`;
+      const titleFontSize = width * 0.035;
+      ctx.font = `bold ${titleFontSize}px ${themeConfig.fontFamily}`;
       ctx.textAlign = 'center';
-      ctx.fillText(title, width / 2, height * 0.05);
+      
+      // Word wrap title if too long
+      const maxTitleWidth = width * 0.9;
+      const titleWidth = ctx.measureText(title).width;
+      
+      if (titleWidth > maxTitleWidth) {
+        // Split into multiple lines
+        const words = title.split(' ');
+        let line = '';
+        const titleLines: string[] = [];
+        
+        for (let i = 0; i < words.length; i++) {
+          const testLine = line + words[i] + ' ';
+          if (ctx.measureText(testLine).width > maxTitleWidth && i > 0) {
+            titleLines.push(line.trim());
+            line = words[i] + ' ';
+          } else {
+            line = testLine;
+          }
+        }
+        titleLines.push(line.trim());
+        
+        // Draw each line
+        const titleLineHeight = titleFontSize * 1.2;
+        titleLines.slice(0, 2).forEach((l, i) => {
+          ctx.fillText(l, width / 2, height * 0.04 + i * titleLineHeight);
+        });
+        titleEndY = height * 0.04 + titleLines.slice(0, 2).length * titleLineHeight;
+      } else {
+        ctx.fillText(title, width / 2, height * 0.05);
+        titleEndY = height * 0.05 + titleFontSize * 0.3;
+      }
     }
     
-    // Draw subtitle
+    // Draw subtitle below title
     if (subtitle) {
       ctx.fillStyle = themeConfig.textColor;
       ctx.globalAlpha = 0.7;
@@ -297,8 +377,9 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
       lines.push(line.trim());
       
       const lineHeight = subtitleFontSize * 1.3;
+      const subtitleStartY = titleEndY + subtitleFontSize * 1.5;
       lines.slice(0, 3).forEach((l, i) => {
-        ctx.fillText(l, width / 2, height * 0.08 + i * lineHeight);
+        ctx.fillText(l, width / 2, subtitleStartY + i * lineHeight);
       });
       ctx.globalAlpha = 1;
     }
@@ -481,6 +562,195 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   };
 
+  // Generate SVG export
+  const handleDownloadSVG = () => {
+    if (capturedNodes.length === 0) {
+      toast.error('No graph data to export');
+      return;
+    }
+    
+    const formatConfig = EXPORT_FORMATS[format];
+    const width = formatConfig.width;
+    const height = formatConfig.height;
+    
+    // Calculate scale to fit the captured graph
+    const graphWidth = graphBounds.maxX - graphBounds.minX;
+    const graphHeight = graphBounds.maxY - graphBounds.minY;
+    
+    const availableHeight = height * 0.75;
+    const availableWidth = width * 0.9;
+    const topMargin = height * 0.15;
+    
+    const scale = Math.min(
+      availableWidth / graphWidth,
+      availableHeight / graphHeight
+    );
+    
+    const offsetX = (width - graphWidth * scale) / 2 - graphBounds.minX * scale;
+    const offsetY = topMargin + (availableHeight - graphHeight * scale) / 2 - graphBounds.minY * scale;
+    
+    // Build SVG content
+    let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <style>
+    .title { font-family: ${themeConfig.fontFamily}; font-weight: bold; font-size: ${width * 0.035}px; fill: ${themeConfig.textColor}; }
+    .subtitle { font-family: ${themeConfig.fontFamily}; font-size: ${width * 0.016}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
+    .label { font-family: ${themeConfig.fontFamily}; font-weight: 500; font-size: ${themeConfig.labelSize * scale}px; fill: ${themeConfig.textColor}; }
+    .legend { font-family: ${themeConfig.fontFamily}; font-size: ${Math.max(12, width * 0.012)}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
+    .watermark { font-family: ${themeConfig.fontFamily}; font-size: ${width * 0.015}px; fill: ${themeConfig.textColor}; opacity: 0.5; }
+  </style>
+  
+  <!-- Background -->
+  <rect width="${width}" height="${height}" fill="${themeConfig.background}"/>
+  
+`;
+    
+    // Add title
+    if (title) {
+      svgContent += `  <!-- Title -->
+  <text x="${width / 2}" y="${height * 0.05}" text-anchor="middle" class="title">${escapeXml(title)}</text>
+`;
+    }
+    
+    // Add subtitle
+    if (subtitle) {
+      const subtitleY = height * 0.08;
+      svgContent += `  <!-- Subtitle -->
+  <text x="${width / 2}" y="${subtitleY}" text-anchor="middle" class="subtitle">${escapeXml(subtitle)}</text>
+`;
+    }
+    
+    // Add links
+    svgContent += `  
+  <!-- Links -->
+  <g class="links">
+`;
+    capturedLinks.forEach(link => {
+      const sx = link.sourceX * scale + offsetX;
+      const sy = link.sourceY * scale + offsetY;
+      const tx = link.targetX * scale + offsetX;
+      const ty = link.targetY * scale + offsetY;
+      
+      const dx = tx - sx;
+      const dy = ty - sy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      
+      let pathD: string;
+      if (dist > 0) {
+        const midX = (sx + tx) / 2;
+        const midY = (sy + ty) / 2;
+        const curveOffset = dist * themeConfig.curveIntensity * 0.3;
+        const perpX = -dy / dist * curveOffset;
+        const perpY = dx / dist * curveOffset;
+        pathD = `M ${sx} ${sy} Q ${midX + perpX} ${midY + perpY} ${tx} ${ty}`;
+      } else {
+        pathD = `M ${sx} ${sy} L ${tx} ${ty}`;
+      }
+      
+      const dashAttr = link.strokeDasharray && link.strokeDasharray !== 'none' 
+        ? ` stroke-dasharray="${link.strokeDasharray.split(',').map(d => parseFloat(d) * scale).join(',')}"`
+        : '';
+      
+      svgContent += `    <path d="${pathD}" stroke="${link.stroke}" stroke-width="${link.strokeWidth * scale}" fill="none"${dashAttr}/>
+`;
+    });
+    svgContent += `  </g>
+`;
+    
+    // Add nodes
+    svgContent += `  
+  <!-- Nodes -->
+  <g class="nodes">
+`;
+    capturedNodes.forEach(node => {
+      const x = node.x * scale + offsetX;
+      const y = node.y * scale + offsetY;
+      const r = node.radius * scale;
+      
+      svgContent += `    <g>
+`;
+      svgContent += `      <circle cx="${x}" cy="${y}" r="${r}" fill="${node.fill}" stroke="${node.stroke}" stroke-width="${node.strokeWidth * scale}"/>
+`;
+      svgContent += `      <text x="${x}" y="${y + r + themeConfig.labelSize * scale}" text-anchor="middle" class="label">${escapeXml(node.name)}</text>
+`;
+      svgContent += `    </g>
+`;
+    });
+    svgContent += `  </g>
+`;
+    
+    // Add legend
+    if (showLegend) {
+      const legendY = height * 0.93;
+      const dotSize = Math.max(4, width * 0.004);
+      const entityTypes = Array.from(new Set(capturedNodes.map(n => n.type)));
+      const typeLabels: Record<string, string> = {
+        person: 'Person',
+        corporation: 'Corporation',
+        organization: 'Organization',
+        financial: 'Financial',
+        government: 'Government',
+        unknown: 'Unknown',
+      };
+      
+      let legendX = width * 0.2;
+      const legendSpacing = width / (entityTypes.length + 1);
+      
+      svgContent += `  
+  <!-- Legend -->
+  <g class="legend-group">
+`;
+      entityTypes.forEach((type, i) => {
+        const isHollow = ['corporation', 'organization', 'financial', 'government'].includes(type);
+        const cx = legendX + i * legendSpacing;
+        
+        if (isHollow) {
+          svgContent += `    <circle cx="${cx}" cy="${legendY}" r="${dotSize}" fill="${themeConfig.background}" stroke="${themeConfig.nodeStroke}" stroke-width="1"/>
+`;
+        } else {
+          svgContent += `    <circle cx="${cx}" cy="${legendY}" r="${dotSize}" fill="${themeConfig.nodeStroke}"/>
+`;
+        }
+        svgContent += `    <text x="${cx + dotSize + 6}" y="${legendY + dotSize / 2}" class="legend">${typeLabels[type] || type}</text>
+`;
+      });
+      svgContent += `  </g>
+`;
+    }
+    
+    // Add watermark
+    if (showWatermark) {
+      svgContent += `  
+  <!-- Watermark -->
+  <text x="${width / 2}" y="${height * 0.97}" text-anchor="middle" class="watermark">Created with SilentPartners.app</text>
+`;
+    }
+    
+    svgContent += `</svg>`;
+    
+    // Download
+    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const filename = (title || 'network').toLowerCase().replace(/[^a-z0-9]/g, '-') + '.svg';
+    link.download = filename;
+    link.href = url;
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    toast.success('SVG downloaded successfully');
+  };
+  
+  // Helper to escape XML special characters
+  const escapeXml = (str: string): string => {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
   const formatConfig = EXPORT_FORMATS[format];
   const aspectRatio = formatConfig.width / formatConfig.height;
 
@@ -620,6 +890,10 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
           <Button variant="default" onClick={handleDownload}>
             <Download className="w-4 h-4 mr-2" />
             Download PNG
+          </Button>
+          <Button variant="outline" onClick={handleDownloadSVG}>
+            <FileCode className="w-4 h-4 mr-2" />
+            Download SVG
           </Button>
           <Button variant="outline" onClick={handleCopy}>
             <Copy className="w-4 h-4 mr-2" />
