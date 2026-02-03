@@ -323,6 +323,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     linkSelection.exit().transition().duration(300).attr('stroke-opacity', 0).remove();
 
     // Add arrow marker definition if arrows are enabled
+    const svg = d3.select(svgRef.current);
     const defs = svg.select('defs').empty() ? svg.append('defs') : svg.select('defs');
     if (showArrows) {
       // Remove existing markers and recreate
