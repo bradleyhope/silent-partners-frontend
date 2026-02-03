@@ -208,7 +208,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   // ============================================
 
   useEffect(() => {
-    if (!gRef.current) return;
+    if (!gRef.current || !svgRef.current) return;
     
     const g = gRef.current;
     const { width, height } = dimensions;
