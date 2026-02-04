@@ -790,13 +790,13 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
                         Create Artwork
                       </button>
                       <button
-                        onClick={handleExportPng}
+                        onClick={(e) => { e.stopPropagation(); handleExportPng(); }}
                         className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
                       >
                         Quick PNG
                       </button>
                       <button
-                        onClick={handleExportSvg}
+                        onClick={(e) => { e.stopPropagation(); handleExportSvg(); }}
                         className="w-full px-3 py-2 text-xs text-left hover:bg-accent transition-colors"
                       >
                         Export SVG

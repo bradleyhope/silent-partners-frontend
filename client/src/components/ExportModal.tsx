@@ -593,15 +593,20 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     const offsetX = (width - graphWidth * scale) / 2 - graphBounds.minX * scale;
     const offsetY = topMargin + (availableHeight - graphHeight * scale) / 2 - graphBounds.minY * scale;
     
-    // Build SVG content
+    // Build SVG content with safe fallback fonts for external viewers
+    // Use system fonts that are universally available, with web fonts as secondary
+    const safeFontFamily = themeConfig.fontFamily.includes('Serif') 
+      ? `Georgia, "Times New Roman", ${themeConfig.fontFamily}, serif`
+      : `Arial, Helvetica, ${themeConfig.fontFamily}, sans-serif`;
+    
     let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <style>
-    .title { font-family: ${themeConfig.fontFamily}; font-weight: bold; font-size: ${width * 0.035}px; fill: ${themeConfig.textColor}; dominant-baseline: hanging; }
-    .subtitle { font-family: ${themeConfig.fontFamily}; font-size: ${width * 0.016}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
-    .label { font-family: ${themeConfig.fontFamily}; font-weight: 500; font-size: ${themeConfig.labelSize * scale}px; fill: ${themeConfig.textColor}; }
-    .legend { font-family: ${themeConfig.fontFamily}; font-size: ${Math.max(12, width * 0.012)}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
-    .watermark { font-family: ${themeConfig.fontFamily}; font-size: ${width * 0.015}px; fill: ${themeConfig.textColor}; opacity: 0.5; }
+    .title { font-family: ${safeFontFamily}; font-weight: bold; font-size: ${width * 0.035}px; fill: ${themeConfig.textColor}; dominant-baseline: hanging; }
+    .subtitle { font-family: ${safeFontFamily}; font-size: ${width * 0.016}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
+    .label { font-family: ${safeFontFamily}; font-weight: 500; font-size: ${themeConfig.labelSize * scale}px; fill: ${themeConfig.textColor}; }
+    .legend { font-family: ${safeFontFamily}; font-size: ${Math.max(12, width * 0.012)}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
+    .watermark { font-family: ${safeFontFamily}; font-size: ${width * 0.015}px; fill: ${themeConfig.textColor}; opacity: 0.5; }
   </style>
   
   <!-- Background -->
