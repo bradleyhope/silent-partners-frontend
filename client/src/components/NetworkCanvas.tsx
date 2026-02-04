@@ -595,7 +595,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   const selectedEntity = network.entities.find((e) => e.id === selectedEntityId);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ background: themeConfig.background }}>
+    <div ref={containerRef} id="network-canvas" className="relative w-full h-full overflow-hidden" style={{ background: themeConfig.background }}>
       {/* Dot pattern background */}
       {showDotPattern && (
         <div 

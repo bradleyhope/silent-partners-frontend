@@ -597,7 +597,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <style>
-    .title { font-family: ${themeConfig.fontFamily}; font-weight: bold; font-size: ${width * 0.035}px; fill: ${themeConfig.textColor}; }
+    .title { font-family: ${themeConfig.fontFamily}; font-weight: bold; font-size: ${width * 0.035}px; fill: ${themeConfig.textColor}; dominant-baseline: hanging; }
     .subtitle { font-family: ${themeConfig.fontFamily}; font-size: ${width * 0.016}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
     .label { font-family: ${themeConfig.fontFamily}; font-weight: 500; font-size: ${themeConfig.labelSize * scale}px; fill: ${themeConfig.textColor}; }
     .legend { font-family: ${themeConfig.fontFamily}; font-size: ${Math.max(12, width * 0.012)}px; fill: ${themeConfig.textColor}; opacity: 0.7; }
@@ -612,7 +612,7 @@ export default function ExportModal({ open, onOpenChange }: ExportModalProps) {
     // Add title
     if (title) {
       svgContent += `  <!-- Title -->
-  <text x="${width / 2}" y="${height * 0.05}" text-anchor="middle" class="title">${escapeXml(title)}</text>
+  <text x="${width / 2}" y="${height * 0.03}" text-anchor="middle" class="title">${escapeXml(title)}</text>
 `;
     }
     
