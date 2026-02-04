@@ -764,7 +764,8 @@ export default function InvestigativeAssistant({
     };
     
     // Add immediate entities to graph with "pending" status
-    const immediateEntities = extractImmediateEntities(query);
+    // Only do this when graph is empty/sparse to avoid orphan nodes
+    const immediateEntities = network.entities.length < 3 ? extractImmediateEntities(query) : [];
     for (const name of immediateEntities) {
       // Check if entity already exists
       const exists = network.entities.some(
