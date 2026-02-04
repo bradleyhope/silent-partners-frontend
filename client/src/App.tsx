@@ -7,6 +7,8 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { CanvasThemeProvider } from "./contexts/CanvasThemeContext";
 import { OrchestratorProvider } from "./contexts/OrchestratorContext";
+import { EnrichQueueProvider } from "./contexts/EnrichQueueContext";
+import EnrichQueuePanel from "./components/EnrichQueuePanel";
 import Home from "./pages/Home";
 import ShareView from "./pages/ShareView";
 
@@ -29,18 +31,21 @@ function App() {
         <AuthProvider>
           <CanvasThemeProvider>
             <OrchestratorProvider>
-              <TooltipProvider>
-              <Toaster 
-                position="top-right"
-                toastOptions={{
-                  style: {
-                    fontFamily: "'Source Sans 3', sans-serif",
-                  },
-                }}
-              />
-              <Router />
-            </TooltipProvider>
-              </OrchestratorProvider>
+              <EnrichQueueProvider>
+                <TooltipProvider>
+                  <Toaster 
+                    position="top-right"
+                    toastOptions={{
+                      style: {
+                        fontFamily: "'Source Sans 3', sans-serif",
+                      },
+                    }}
+                  />
+                  <Router />
+                  <EnrichQueuePanel />
+                </TooltipProvider>
+              </EnrichQueueProvider>
+            </OrchestratorProvider>
           </CanvasThemeProvider>
         </AuthProvider>
       </ThemeProvider>
