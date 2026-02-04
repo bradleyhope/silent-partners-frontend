@@ -855,6 +855,8 @@ export function streamOrchestrate(
           investigation_context: {
             title: context.topic || '',
             description: context.domain || '',
+            focus: context.focus || '',
+            key_questions: context.key_questions || [],
             key_findings: [],
             hypotheses: [],
             red_flags: [],
