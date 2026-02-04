@@ -457,6 +457,119 @@ export default function UnifiedAIInput({ onNarrativeEvent, clearFirst = false, i
         });
       },
       
+      // Graph editing callbacks
+      onGraphEdit: (action, data) => {
+        console.log('Graph edit received:', action, data);
+        
+        // Apply the graph edit based on action type
+        switch (action) {
+          case 'merge_entities':
+            if (data.keep_entity_id && data.merge_entity_id) {
+              // Find and update relationships to point to kept entity
+              const updatedRelationships = network.relationships.map(r => {
+                if (r.source === data.merge_entity_id) {
+                  return { ...r, source: data.keep_entity_id };
+                }
+                if (r.target === data.merge_entity_id) {
+                  return { ...r, target: data.keep_entity_id };
+                }
+                return r;
+              });
+              
+              // Update the kept entity with alias
+              const updatedEntities = network.entities
+                .filter(e => e.id !== data.merge_entity_id)
+                .map(e => {
+                  if (e.id === data.keep_entity_id && data.add_alias) {
+                    return {
+                      ...e,
+                      aliases: [...(e.aliases || []), data.add_alias]
+                    };
+                  }
+                  return e;
+                });
+              
+              dispatch({ type: 'SET_NETWORK', payload: { entities: updatedEntities, relationships: updatedRelationships } });
+              toast.success(data.message || `Merged entities`);
+            }
+            break;
+            
+          case 'update_relationship':
+            if (data.relationship_id && data.new_type) {
+              const updatedRelationships = network.relationships.map(r => {
+                if (r.id === data.relationship_id) {
+                  return { ...r, type: data.new_type, label: data.new_type };
+                }
+                return r;
+              });
+              dispatch({ type: 'SET_NETWORK', payload: { entities: network.entities, relationships: updatedRelationships } });
+              toast.success(data.message || `Updated relationship`);
+            }
+            break;
+            
+          case 'delete_entity':
+            if (data.entity_id) {
+              const updatedEntities = network.entities.filter(e => e.id !== data.entity_id);
+              const updatedRelationships = network.relationships.filter(
+                r => r.source !== data.entity_id && r.target !== data.entity_id
+              );
+              dispatch({ type: 'SET_NETWORK', payload: { entities: updatedEntities, relationships: updatedRelationships } });
+              toast.success(data.message || `Deleted entity`);
+            }
+            break;
+            
+          case 'delete_relationship':
+            if (data.relationship_id) {
+              const updatedRelationships = network.relationships.filter(r => r.id !== data.relationship_id);
+              dispatch({ type: 'SET_NETWORK', payload: { entities: network.entities, relationships: updatedRelationships } });
+              toast.success(data.message || `Deleted relationship`);
+            }
+            break;
+            
+          case 'rename_entity':
+            if (data.entity_id && data.new_name) {
+              const updatedEntities = network.entities.map(e => {
+                if (e.id === data.entity_id) {
+                  return {
+                    ...e,
+                    name: data.new_name,
+                    aliases: [...(e.aliases || []), data.old_name].filter(Boolean)
+                  };
+                }
+                return e;
+              });
+              dispatch({ type: 'SET_NETWORK', payload: { entities: updatedEntities, relationships: network.relationships } });
+              toast.success(data.message || `Renamed entity`);
+            }
+            break;
+        }
+        
+        // Log to narrative
+        onNarrativeEvent?.({
+          type: 'discovery',
+          title: 'Graph Updated',
+          content: data.message || `Applied ${action}`,
+        });
+      },
+      
+      onGraphIssuesFound: (issues, count) => {
+        console.log('Graph issues found:', issues);
+        onNarrativeEvent?.({
+          type: 'info',
+          title: `Found ${count} Graph Issues`,
+          content: issues.map(i => {
+            if (i.type === 'duplicate_entity') {
+              return `Duplicate: "${i.entity1?.name}" and "${i.entity2?.name}" (${(i.similarity! * 100).toFixed(0)}% similar)`;
+            } else if (i.type === 'generic_relationship') {
+              return `Generic relationship: ${i.source} → ${i.current_type} → ${i.target}`;
+            } else if (i.type === 'self_referential') {
+              return `Self-referential relationship detected`;
+            }
+            return `Issue: ${i.type}`;
+          }).join('\n'),
+        });
+      },
+      
       // Context management callback
       onContextUpdate: (context) => {
         // Pass context updates to parent component

@@ -715,6 +715,8 @@ export type OrchestratorEventType =
   | 'graph_analysis'  // NEW v2.0
   | 'sanctions_alert'  // Sanctions warning
   | 'using_cached_research'  // Backend compatibility
+  | 'graph_edit'  // Graph editing actions from AI
+  | 'graph_issues_found'  // Issues detected in graph
   | 'error';
 
 export interface OrchestratorCallbacks {
@@ -738,6 +740,32 @@ export interface OrchestratorCallbacks {
   onResearchCached?: (query: string, message: string) => void;
   onGraphAnalysis?: (analysis: { entity_count: number; relationship_count: number; central_nodes: string[]; orphans: string[]; gaps: string[] }) => void;
   onSanctionsAlert?: (entity: string, sanctionType: string, details: string) => void;
+  // Graph editing callbacks
+  onGraphEdit?: (action: string, data: {
+    entity_id?: string;
+    entity_name?: string;
+    keep_entity_id?: string;
+    keep_entity_name?: string;
+    merge_entity_id?: string;
+    merge_entity_name?: string;
+    add_alias?: string;
+    relationship_id?: string;
+    old_type?: string;
+    new_type?: string;
+    old_name?: string;
+    new_name?: string;
+    message?: string;
+  }) => void;
+  onGraphIssuesFound?: (issues: Array<{
+    type: string;
+    entity1?: { id: string; name: string };
+    entity2?: { id: string; name: string };
+    relationship_id?: string;
+    source?: string;
+    target?: string;
+    current_type?: string;
+    similarity?: number;
+  }>, count: number) => void;
   // Context management callbacks
   onContextUpdate?: (context: {
     title?: string;
@@ -1131,6 +1159,18 @@ function handleAgentV2Event(
         event.data?.relationships || relationshipsFound,
         event.data?.message || 'Complete'
       );
+      break;
+      
+    case 'graph_edit':
+      if (event.data?.action) {
+        callbacks.onGraphEdit?.(event.data.action, event.data);
+      }
+      break;
+      
+    case 'graph_issues_found':
+      if (event.data?.issues) {
+        callbacks.onGraphIssuesFound?.(event.data.issues, event.data.count || event.data.issues.length);
+      }
       break;
   }
 }
