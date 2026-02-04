@@ -634,25 +634,30 @@ export default function InvestigativeAssistant({
     entityIdMap.current.clear();
     sessionEntities.current.clear();
     
-    // SCAFFOLD-FIRST: Use scaffold endpoint when graph is empty or sparse
+    // SCAFFOLD-FIRST: Use streaming scaffold endpoint when graph is empty or sparse
     const shouldUseScaffold = network.entities.length < 3;
     
     if (shouldUseScaffold) {
       try {
-        setProgressStatus({ step: 1, total: 2, goal: 'Generating investigation scaffold...' });
+        setProgressStatus({ step: 1, total: 3, goal: 'Generating investigation scaffold...' });
         // Get API base and remove trailing /api if present to avoid double /api
         let apiBase = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://silent-partners-ai-api.onrender.com';
         if (apiBase.endsWith('/api')) {
           apiBase = apiBase.slice(0, -4);
         }
         
-        const response = await fetch(`${apiBase}/api/v2/agent-v2/scaffold`, {
+        // Use streaming scaffold endpoint for animated entity arrival
+        const response = await fetch(`${apiBase}/api/v2/agent-v2/scaffold/stream`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+          },
           body: JSON.stringify({
             query,
             existing_entities: network.entities.map(e => ({ id: e.id, name: e.name, type: e.type })),
             existing_relationships: network.relationships.map(r => ({ source: r.source, target: r.target, type: r.type })),
+            focus: context.focus || undefined,
           })
         });
         
@@ -661,58 +666,126 @@ export default function InvestigativeAssistant({
           throw new Error(errorData.error || `HTTP ${response.status}`);
         }
         
-        const result = await response.json();
-        setProgressStatus({ step: 2, total: 2, goal: 'Adding entities to graph...' });
-        
-        if (network.title === 'Untitled Network' && result.title) {
-          dispatch({ type: 'UPDATE_NETWORK', payload: { title: result.title, description: result.description } });
+        if (!response.body) {
+          throw new Error('No response body for streaming');
         }
         
+        // Track entities for relationship resolution
         const scaffoldEntityMap = new Map<string, string>();
         let entitiesAdded = 0;
-        for (const entity of result.entities || []) {
-          const newId = generateId();
-          scaffoldEntityMap.set(entity.name.toLowerCase(), newId);
-          const newEntity: Entity = {
-            id: newId,
-            name: entity.name,
-            type: entity.type || 'unknown',
-            description: entity.description || '',
-            importance: entity.importance || 5,
-            source_type: 'scaffold',
-            source_query: query,
-            created_at: new Date().toISOString(),
-          };
-          dispatch({ type: 'ADD_ENTITY', payload: newEntity });
-          entitiesAdded++;
-        }
-        
         let relationshipsAdded = 0;
-        for (const rel of result.relationships || []) {
-          const sourceId = scaffoldEntityMap.get(rel.source.toLowerCase());
-          const targetId = scaffoldEntityMap.get(rel.target.toLowerCase());
-          if (sourceId && targetId) {
-            const newRel: Relationship = {
-              id: generateId(),
-              source: sourceId,
-              target: targetId,
-              type: rel.type || 'related_to',
-              label: rel.description || rel.type,
-              created_at: new Date().toISOString(),
-            };
-            dispatch({ type: 'ADD_RELATIONSHIP', payload: newRel });
-            relationshipsAdded++;
+        let scaffoldTitle = '';
+        let scaffoldDescription = '';
+        let expansionPaths: any[] = [];
+        
+        // Process streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const event = JSON.parse(line.slice(6));
+                
+                switch (event.type) {
+                  case 'status':
+                    // Update progress based on status message
+                    setProgressStatus(prev => ({
+                      ...prev,
+                      goal: event.message || 'Generating scaffold...',
+                    }));
+                    break;
+                    
+                  case 'entity':
+                    // Add entity with animation
+                    const entityData = event.data;
+                    const newId = generateId();
+                    scaffoldEntityMap.set(entityData.name.toLowerCase(), newId);
+                    const newEntity: Entity = {
+                      id: newId,
+                      name: entityData.name,
+                      type: entityData.type || 'unknown',
+                      description: entityData.description || '',
+                      importance: entityData.importance || 5,
+                      source_type: 'scaffold',
+                      source_query: query,
+                      created_at: new Date().toISOString(),
+                    };
+                    dispatch({ type: 'ADD_ENTITY', payload: newEntity });
+                    entitiesAdded++;
+                    setProgressStatus(prev => ({
+                      ...prev,
+                      step: 2,
+                      total: 3,
+                      goal: `Adding entities... (${entitiesAdded} found)`,
+                    }));
+                    break;
+                    
+                  case 'relationship':
+                    // Add relationship with animation
+                    const relData = event.data;
+                    const sourceId = scaffoldEntityMap.get(relData.source.toLowerCase());
+                    const targetId = scaffoldEntityMap.get(relData.target.toLowerCase());
+                    if (sourceId && targetId) {
+                      const newRel: Relationship = {
+                        id: generateId(),
+                        source: sourceId,
+                        target: targetId,
+                        type: relData.type || 'related_to',
+                        label: relData.description || relData.type,
+                        created_at: new Date().toISOString(),
+                      };
+                      dispatch({ type: 'ADD_RELATIONSHIP', payload: newRel });
+                      relationshipsAdded++;
+                    }
+                    setProgressStatus(prev => ({
+                      ...prev,
+                      step: 3,
+                      total: 3,
+                      goal: `Mapping relationships... (${relationshipsAdded} found)`,
+                    }));
+                    break;
+                    
+                  case 'complete':
+                    // Store final data
+                    scaffoldTitle = event.title || '';
+                    scaffoldDescription = event.description || '';
+                    expansionPaths = event.expansion_paths || [];
+                    break;
+                    
+                  case 'error':
+                    throw new Error(event.error || 'Scaffold generation failed');
+                }
+              } catch (e) {
+                console.warn('Failed to parse scaffold event:', line, e);
+              }
+            }
           }
         }
         
-        if (result.expansion_paths && result.expansion_paths.length > 0) {
-          setExpansionPaths(result.expansion_paths);
+        // Update network title if needed
+        if (network.title === 'Untitled Network' && scaffoldTitle) {
+          dispatch({ type: 'UPDATE_NETWORK', payload: { title: scaffoldTitle, description: scaffoldDescription } });
+        }
+        
+        // Set expansion paths
+        if (expansionPaths.length > 0) {
+          setExpansionPaths(expansionPaths);
         }
         
         const assistantMessage: ChatMessage = {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          content: `**Investigation Scaffold Generated** \u2705\n\n${result.description || 'Initial network mapped.'}\n\n- **${entitiesAdded}** entities added\n- **${relationshipsAdded}** relationships mapped\n\n${result.expansion_paths?.length > 0 ? '**Choose a direction below to expand the investigation.**' : ''}`,
+          content: `**Investigation Scaffold Generated** \u2705\n\n${scaffoldDescription || 'Initial network mapped.'}\n\n- **${entitiesAdded}** entities added\n- **${relationshipsAdded}** relationships mapped\n\n${expansionPaths.length > 0 ? '**Choose a direction below to expand the investigation.**' : ''}`,
           timestamp: new Date().toISOString(),
           metadata: { entitiesFound: entitiesAdded, relationshipsFound: relationshipsAdded, scaffoldGenerated: true },
         };
