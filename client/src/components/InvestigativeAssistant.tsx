@@ -640,7 +640,11 @@ export default function InvestigativeAssistant({
     if (shouldUseScaffold) {
       try {
         setProgressStatus({ step: 1, total: 2, goal: 'Generating investigation scaffold...' });
-        const apiBase = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://silent-partners-ai-api.onrender.com';
+        // Get API base and remove trailing /api if present to avoid double /api
+        let apiBase = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://silent-partners-ai-api.onrender.com';
+        if (apiBase.endsWith('/api')) {
+          apiBase = apiBase.slice(0, -4);
+        }
         
         const response = await fetch(`${apiBase}/api/v2/agent-v2/scaffold`, {
           method: 'POST',
