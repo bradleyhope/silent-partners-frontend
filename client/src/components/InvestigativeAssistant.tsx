@@ -990,8 +990,10 @@ export default function InvestigativeAssistant({
     try {
       setProgressStatus({ step: 1, total: 2, goal: `Expanding: ${path.title}...` });
       const apiBase = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || 'https://silent-partners-ai-api.onrender.com';
+      // Strip trailing /api from base URL to avoid double /api/api path
+      const cleanApiBase = apiBase.replace(/\/api$/, '');
       
-      const response = await fetch(`${apiBase}/api/v2/agent-v2/expand`, {
+      const response = await fetch(`${cleanApiBase}/api/v2/agent-v2/expand`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
