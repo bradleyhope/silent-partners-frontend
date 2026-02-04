@@ -19,6 +19,61 @@ import {
 import { InvestigationContext } from '@/lib/store';
 
 /**
+ * Calculate Levenshtein distance between two strings.
+ * Used for fuzzy matching of names with typos.
+ */
+function levenshteinDistance(str1: string, str2: string): number {
+  const m = str1.length;
+  const n = str2.length;
+  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (str1[i - 1] === str2[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+  return dp[m][n];
+}
+
+/**
+ * Simple Soundex implementation for phonetic matching.
+ * Helps match names like "Tahnoon" vs "Tahnoun".
+ */
+function soundex(str: string): string {
+  const s = str.toUpperCase().replace(/[^A-Z]/g, '');
+  if (!s) return '';
+  
+  const codes: { [key: string]: string } = {
+    B: '1', F: '1', P: '1', V: '1',
+    C: '2', G: '2', J: '2', K: '2', Q: '2', S: '2', X: '2', Z: '2',
+    D: '3', T: '3',
+    L: '4',
+    M: '5', N: '5',
+    R: '6'
+  };
+  
+  let result = s[0];
+  let prevCode = codes[s[0]] || '';
+  
+  for (let i = 1; i < s.length && result.length < 4; i++) {
+    const code = codes[s[i]] || '';
+    if (code && code !== prevCode) {
+      result += code;
+    }
+    prevCode = code;
+  }
+  
+  return result.padEnd(4, '0');
+}
+
+/**
  * Normalize entity name for comparison.
  * Handles common variations like "Inc.", "Corp.", "LLC", etc.
  */
@@ -33,6 +88,7 @@ function normalizeEntityName(name: string): string {
 
 /**
  * Check if two entity names are similar enough to be considered duplicates.
+ * Uses multiple strategies: exact match, substring, abbreviation, fuzzy (Levenshtein), and phonetic (Soundex).
  */
 function areNamesSimilar(name1: string, name2: string): boolean {
   const norm1 = normalizeEntityName(name1);
@@ -49,6 +105,33 @@ function areNamesSimilar(name1: string, name2: string): boolean {
   const abbrev2 = norm2.split(' ').map(w => w[0]).join('');
   if (abbrev1.length > 2 && abbrev1 === norm2) return true;
   if (abbrev2.length > 2 && abbrev2 === norm1) return true;
+  
+  // Fuzzy matching using Levenshtein distance
+  // Allow 1 edit for short names, 2 for longer names
+  const maxLen = Math.max(norm1.length, norm2.length);
+  const minLen = Math.min(norm1.length, norm2.length);
+  if (minLen >= 3) {
+    const distance = levenshteinDistance(norm1, norm2);
+    const threshold = maxLen <= 6 ? 1 : 2;
+    if (distance <= threshold) return true;
+  }
+  
+  // Phonetic matching using Soundex (for names like Tahnoon/Tahnoun)
+  // Only apply to single-word names (likely person names)
+  const words1 = norm1.split(' ');
+  const words2 = norm2.split(' ');
+  if (words1.length === words2.length) {
+    let allMatch = true;
+    for (let i = 0; i < words1.length; i++) {
+      const s1 = soundex(words1[i]);
+      const s2 = soundex(words2[i]);
+      if (s1 !== s2) {
+        allMatch = false;
+        break;
+      }
+    }
+    if (allMatch && words1.length > 0) return true;
+  }
   
   return false;
 }
