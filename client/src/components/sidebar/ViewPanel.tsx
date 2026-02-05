@@ -2,21 +2,42 @@
  * Silent Partners - View Panel
  *
  * Theme selector and display options.
+ * MEDIUM-4: Entity type legend is now interactive for filtering.
  */
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronDown } from 'lucide-react';
-import { useCanvasTheme, CanvasTheme } from '@/contexts/CanvasThemeContext';
+import { ChevronDown, Eye, EyeOff } from 'lucide-react';
+import { useCanvasTheme, CanvasTheme, ENTITY_TYPES, EntityType, ENTITY_COLORS } from '@/contexts/CanvasThemeContext';
 
 interface ViewPanelProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+// Entity type display config
+const ENTITY_TYPE_CONFIG: Record<EntityType, { label: string; color: string }> = {
+  person: { label: 'Person', color: ENTITY_COLORS.vibrant.person },
+  corporation: { label: 'Corporation', color: ENTITY_COLORS.vibrant.corporation },
+  organization: { label: 'Organization', color: ENTITY_COLORS.vibrant.organization },
+  financial: { label: 'Financial', color: ENTITY_COLORS.vibrant.financial },
+  government: { label: 'Government', color: ENTITY_COLORS.vibrant.government },
+  location: { label: 'Location', color: '#5C9EAD' },
+  asset: { label: 'Asset', color: '#D4A574' },
+};
+
 export default function ViewPanel({ isOpen, onOpenChange }: ViewPanelProps) {
-  const { theme, setTheme, showAllLabels, setShowAllLabels, showArrows, setShowArrows } = useCanvasTheme();
+  const { 
+    theme, 
+    setTheme, 
+    showAllLabels, 
+    setShowAllLabels, 
+    showArrows, 
+    setShowArrows,
+    hiddenEntityTypes,
+    toggleEntityType,
+  } = useCanvasTheme();
 
   return (
     <Collapsible open={isOpen} onOpenChange={onOpenChange}>
@@ -69,32 +90,54 @@ export default function ViewPanel({ isOpen, onOpenChange }: ViewPanelProps) {
           />
         </div>
 
-        {/* Entity type legend */}
+        {/* Entity type legend - now interactive! */}
         <div className="pt-2 border-t border-border">
-          <Label className="text-xs font-medium mb-2 block">Entity Types</Label>
+          <Label className="text-xs font-medium mb-2 block">
+            Entity Types
+            <span className="text-[10px] text-muted-foreground ml-1">(click to filter)</span>
+          </Label>
           <div className="space-y-1 font-mono text-[10px]">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#4A90A4]"></span> Person
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#7CB342]"></span> Corporation
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#7BA05B]"></span> Organization
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#C9A227]"></span> Financial
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#8B7355]"></span> Government
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#5C9EAD]"></span> Location
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#D4A574]"></span> Asset
-            </div>
+            {ENTITY_TYPES.map((type) => {
+              const config = ENTITY_TYPE_CONFIG[type];
+              const isHidden = hiddenEntityTypes.has(type);
+              return (
+                <button
+                  key={type}
+                  onClick={() => toggleEntityType(type)}
+                  className={`flex items-center gap-2 w-full px-1 py-0.5 rounded hover:bg-muted/50 transition-colors ${
+                    isHidden ? 'opacity-40' : ''
+                  }`}
+                  title={isHidden ? `Show ${config.label} entities` : `Hide ${config.label} entities`}
+                >
+                  <span 
+                    className="w-3 h-3 rounded-full transition-opacity"
+                    style={{ backgroundColor: config.color }}
+                  />
+                  <span className="flex-1 text-left">{config.label}</span>
+                  {isHidden ? (
+                    <EyeOff className="w-3 h-3 text-muted-foreground" />
+                  ) : (
+                    <Eye className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                  )}
+                </button>
+              );
+            })}
           </div>
+          {hiddenEntityTypes.size > 0 && (
+            <button
+              onClick={() => {
+                // Clear all filters
+                ENTITY_TYPES.forEach(type => {
+                  if (hiddenEntityTypes.has(type)) {
+                    toggleEntityType(type);
+                  }
+                });
+              }}
+              className="text-[10px] text-primary hover:underline mt-2"
+            >
+              Show all types
+            </button>
+          )}
         </div>
       </CollapsibleContent>
     </Collapsible>

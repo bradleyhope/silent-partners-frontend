@@ -204,7 +204,7 @@ export default function ManualEntryPanel({ isOpen, onOpenChange }: ManualEntryPa
             placeholder="Date (optional, e.g. 1990-2000)"
             className="h-8 text-sm bg-background"
           />
-          <Button onClick={handleAddEntity} size="sm" className="w-full h-7 text-xs">
+          <Button type="button" onClick={handleAddEntity} size="sm" className="w-full h-7 text-xs">
             <Plus className="w-3 h-3 mr-1" /> Add Entity
             {selectedConnection && ' & Connect'}
           </Button>
@@ -254,7 +254,7 @@ export default function ManualEntryPanel({ isOpen, onOpenChange }: ManualEntryPa
               placeholder="Label (optional)"
               className="h-8 text-sm bg-background"
             />
-            <Button onClick={handleAddRelationship} size="sm" className="w-full h-7 text-xs">
+            <Button type="button" onClick={handleAddRelationship} size="sm" className="w-full h-7 text-xs">
               <Link className="w-3 h-3 mr-1" /> Add Relationship
             </Button>
           </div>

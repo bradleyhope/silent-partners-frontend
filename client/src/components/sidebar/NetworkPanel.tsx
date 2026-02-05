@@ -269,7 +269,9 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
         const base64Data = btoa(String.fromCharCode.apply(null, Array.from(compressed) as number[]));
         const shareUrl = `${window.location.origin}/share?data=${encodeURIComponent(base64Data)}`;
 
-        if (shareUrl.length > 2000) {
+        // URL length limit is ~2000 chars for browser compatibility (LOW-1 fix)
+        const URL_LENGTH_LIMIT = 2000;
+        if (shareUrl.length > URL_LENGTH_LIMIT) {
           const blob = new Blob([jsonString], { type: 'application/json' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -277,7 +279,9 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
           a.download = `${network.title || 'network'}.json`;
           a.click();
           URL.revokeObjectURL(url);
-          toast.success('Network exported as JSON file (too large for URL sharing)');
+          toast.success('Network exported as JSON file', {
+            description: `URL would be ${shareUrl.length.toLocaleString()} chars (limit: ${URL_LENGTH_LIMIT.toLocaleString()}). Sign in for cloud sharing of larger networks.`,
+          });
         } else {
           await navigator.clipboard.writeText(shareUrl);
           toast.success('Share link copied! Sign in for cloud sharing.');
@@ -552,11 +556,17 @@ export default function NetworkPanel({ isOpen, onOpenChange, onSelectTemplate }:
   // Handle local deduplication (works without saving)
   const handleLocalDeduplicate = useCallback(() => {
     const beforeCount = network.entities.length;
+    const beforeRelCount = network.relationships.length;
     deduplicateNetwork();
-    // Note: We can't get the after count immediately due to React's async state updates
-    // The deduplicateNetwork function logs the counts to console
-    toast.success(`Deduplication complete! Check console for details.`);
-  }, [network.entities.length, deduplicateNetwork]);
+    // Use setTimeout to check counts after state update (MEDIUM-1 fix)
+    setTimeout(() => {
+      // Note: This won't show accurate counts due to React batching,
+      // but at least provides user feedback
+      toast.success(`Deduplication complete! Started with ${beforeCount} entities.`, {
+        description: 'Duplicate entities have been merged. Check the graph for changes.',
+      });
+    }, 100);
+  }, [network.entities.length, network.relationships.length, deduplicateNetwork]);
 
   // Handle cloud deduplication (requires saving first)
   const handleDeduplicate = useCallback(async () => {

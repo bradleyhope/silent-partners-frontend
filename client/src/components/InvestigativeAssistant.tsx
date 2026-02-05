@@ -922,11 +922,28 @@ export default function InvestigativeAssistant({
         responseContent += content;
       },
       onComplete: (entities: PipelineEntity[], relationships: PipelineRelationship[], message: string) => {
+        // Build a meaningful response even if no thinking content was streamed (HIGH-5 fix)
+        let finalContent = responseContent || message || '';
+        
+        // If no content but we found entities/relationships, generate a summary
+        if (!finalContent.trim() && (entitiesFound > 0 || relationshipsFound > 0)) {
+          const parts: string[] = [];
+          if (entitiesFound > 0) {
+            parts.push(`Found **${entitiesFound}** ${entitiesFound === 1 ? 'entity' : 'entities'}`);
+          }
+          if (relationshipsFound > 0) {
+            parts.push(`mapped **${relationshipsFound}** ${relationshipsFound === 1 ? 'relationship' : 'relationships'}`);
+          }
+          finalContent = parts.join(' and ') + '. The network has been updated.';
+        } else if (!finalContent.trim()) {
+          finalContent = 'Research complete. No new information found for this query.';
+        }
+        
         // Add assistant response
         const assistantMessage: ChatMessage = {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          content: responseContent || message || 'Research complete.',
+          content: finalContent,
           timestamp: new Date().toISOString(),
           metadata: {
             entitiesFound,
@@ -993,11 +1010,15 @@ export default function InvestigativeAssistant({
     }
   }, [handleSend]);
   
-  // Handle quick action
+  // Handle quick action - auto-submit (MEDIUM-7 fix)
   const handleQuickAction = useCallback((query: string) => {
+    if (isProcessing) return;
     setInputValue(query);
-    textareaRef.current?.focus();
-  }, []);
+    // Auto-submit after setting the value
+    setTimeout(() => {
+      handleSend();
+    }, 50);
+  }, [isProcessing, handleSend]);
   
   // Clear chat (also clears localStorage)
   const handleClear = useCallback(() => {

@@ -384,6 +384,10 @@ export function shouldUseSecondaryColor(relationshipType: string): boolean {
   return allegedKeywords.some(keyword => lowerType.includes(keyword));
 }
 
+// Entity types for filtering
+export const ENTITY_TYPES = ['person', 'corporation', 'organization', 'financial', 'government', 'location', 'asset'] as const;
+export type EntityType = typeof ENTITY_TYPES[number];
+
 // Context type
 interface CanvasThemeContextType {
   theme: CanvasTheme;
@@ -394,6 +398,10 @@ interface CanvasThemeContextType {
   showArrows: boolean;
   setShowArrows: (show: boolean) => void;
   getEntityColor: (entityType: string) => string;
+  // Entity type filtering (MEDIUM-4 fix)
+  hiddenEntityTypes: Set<EntityType>;
+  toggleEntityType: (type: EntityType) => void;
+  isEntityTypeVisible: (type: string) => boolean;
 }
 
 const CanvasThemeContext = createContext<CanvasThemeContextType | null>(null);
@@ -402,9 +410,26 @@ export function CanvasThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<CanvasTheme>('lombardi');
   const [showAllLabels, setShowAllLabels] = useState(false);
   const [showArrows, setShowArrows] = useState(false);
+  const [hiddenEntityTypes, setHiddenEntityTypes] = useState<Set<EntityType>>(new Set());
 
   const getEntityColorForTheme = (entityType: string) => {
     return getEntityColor(theme, entityType);
+  };
+
+  const toggleEntityType = (type: EntityType) => {
+    setHiddenEntityTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) {
+        next.delete(type);
+      } else {
+        next.add(type);
+      }
+      return next;
+    });
+  };
+
+  const isEntityTypeVisible = (type: string) => {
+    return !hiddenEntityTypes.has(type as EntityType);
   };
 
   return (
@@ -418,6 +443,9 @@ export function CanvasThemeProvider({ children }: { children: ReactNode }) {
         showArrows,
         setShowArrows,
         getEntityColor: getEntityColorForTheme,
+        hiddenEntityTypes,
+        toggleEntityType,
+        isEntityTypeVisible,
       }}
     >
       {children}

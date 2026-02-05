@@ -614,6 +614,20 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
 
   const clearNetwork = useCallback(() => {
     dispatch({ type: 'CLEAR_NETWORK' });
+    // Also clear chat history from localStorage (HIGH-2, HIGH-3 fix)
+    try {
+      // Clear all chat history keys
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('sp_chat_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+    } catch (e) {
+      console.warn('Failed to clear chat history:', e);
+    }
   }, []);
 
   const setNetwork = useCallback((network: Network) => {

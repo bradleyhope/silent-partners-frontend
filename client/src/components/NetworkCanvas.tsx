@@ -40,7 +40,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { network, selectedEntityId, selectEntity, updateEntity, dispatch } = useNetwork();
-  const { theme, config: themeConfig, showAllLabels, showArrows, getEntityColor } = useCanvasTheme();
+  const { theme, config: themeConfig, showAllLabels, showArrows, getEntityColor, isEntityTypeVisible } = useCanvasTheme();
   
   // Track previous entities/relationships for animation
   const prevEntitiesRef = useRef<Set<string>>(new Set());
@@ -244,9 +244,10 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     prevEntitiesRef.current = currentEntityIds;
     prevRelationshipsRef.current = currentRelIds;
 
-    // Build nodes
+    // Build nodes - filter by visible entity types (MEDIUM-4 fix)
+    const visibleEntities = network.entities.filter(e => isEntityTypeVisible(e.type));
     const existingNodeMap = new Map(nodesRef.current.map(n => [n.id, n]));
-    const nodes: SimulationNode[] = network.entities.map((e, i) => {
+    const nodes: SimulationNode[] = visibleEntities.map((e, i) => {
       const existing = existingNodeMap.get(e.id);
       const isNew = newEntityIds.has(e.id);
       return {
@@ -585,7 +586,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   }, [network.entities, network.relationships, dimensions, selectedEntityId, selectEntity, updateEntity, 
       getCurvedPath, themeConfig, showAllLabels, theme, getNodeRadius, getNodeFill, getNodeStrokeWidth, 
-      getLinkColor, getEntityColor]);
+      getLinkColor, getEntityColor, isEntityTypeVisible]);
 
   // ============================================
   // Render
