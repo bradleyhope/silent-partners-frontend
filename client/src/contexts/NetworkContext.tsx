@@ -620,7 +620,7 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && key.startsWith('sp_chat_')) {
+        if (key && key.startsWith('sp-chat-')) {
           keysToRemove.push(key);
         }
       }

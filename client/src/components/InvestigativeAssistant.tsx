@@ -536,9 +536,9 @@ export default function InvestigativeAssistant({
     return text.match(urlPattern) || [];
   };
 
-  // Handle sending a message
-  const handleSend = useCallback(async () => {
-    const query = inputValue.trim();
+  // Handle sending a message (accepts optional query for quick actions)
+  const handleSend = useCallback(async (directQuery?: string) => {
+    const query = (directQuery || inputValue).trim();
     if (!query || isProcessing) return;
     
     // Add user message
@@ -1013,11 +1013,8 @@ export default function InvestigativeAssistant({
   // Handle quick action - auto-submit (MEDIUM-7 fix)
   const handleQuickAction = useCallback((query: string) => {
     if (isProcessing) return;
-    setInputValue(query);
-    // Auto-submit after setting the value
-    setTimeout(() => {
-      handleSend();
-    }, 50);
+    // Pass query directly to handleSend instead of using setTimeout
+    handleSend(query);
   }, [isProcessing, handleSend]);
   
   // Clear chat (also clears localStorage)
