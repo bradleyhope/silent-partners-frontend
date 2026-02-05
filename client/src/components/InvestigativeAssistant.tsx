@@ -449,6 +449,21 @@ export default function InvestigativeAssistant({
     }]);
   }, [storageKey]);
   
+  // Reset messages when network is cleared (entities become empty and title is reset)
+  const prevEntityCountRef = React.useRef(network.entities.length);
+  useEffect(() => {
+    // Detect network clear: entities went from >0 to 0 and title is reset
+    if (prevEntityCountRef.current > 0 && network.entities.length === 0 && network.title === 'Untitled Network') {
+      setMessages([{
+        id: 'welcome-fresh',
+        role: 'assistant',
+        content: "I'm your investigative assistant. I can help you research people, organizations, and their connections. Ask me to find information, analyze patterns, or explore relationships in your network.",
+        timestamp: new Date().toISOString(),
+      }]);
+    }
+    prevEntityCountRef.current = network.entities.length;
+  }, [network.entities.length, network.title]);
+  
   // Add a welcome message on first open (only if no messages loaded)
   useEffect(() => {
     if (isOpen && messages.length === 0) {
