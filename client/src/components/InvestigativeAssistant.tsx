@@ -16,7 +16,7 @@
  * - Message Metadata (new)
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useNetwork } from '@/contexts/NetworkContext';
