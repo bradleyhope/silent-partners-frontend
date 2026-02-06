@@ -14,7 +14,6 @@ import Sigma from 'sigma';
 import { createNodeBorderProgram } from '@sigma/node-border';
 import { EdgeCurvedArrowProgram } from '@sigma/edge-curve';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
-import FA2Layout from 'graphology-layout-forceatlas2/worker';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme, shouldUseSecondaryColor } from '@/contexts/CanvasThemeContext';
 import { Entity, Relationship, generateId } from '@/lib/store';
@@ -32,7 +31,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   const sigmaContainerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph>(new Graph({ multi: true }));
-  const layoutRef = useRef<FA2Layout | null>(null);
+  const layoutRunningRef = useRef(false);
   const dragStateRef = useRef<{ isDragging: boolean; node: string | null }>({ isDragging: false, node: null });
 
   // Hover/selection state stored in refs for use in reducers
@@ -77,6 +76,8 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   const getNodeColor = useCallback((entity: Entity): string => {
     if (themeConfig.isLombardiStyle) {
+      // For hollow nodes: fill with background color (border program will draw the ring)
+      // For solid nodes: fill with stroke color
       return isHollowNode(entity.type) ? themeConfig.background : themeConfig.nodeStroke;
     }
     if (themeConfig.useEntityColors) {
@@ -116,7 +117,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
     const NodeBorderCustom = createNodeBorderProgram({
       borders: [
-        { size: { value: 0.2, mode: 'relative' }, color: { attribute: 'borderColor' } },
+        { size: { value: 0.15, mode: 'relative' }, color: { attribute: 'borderColor' } },
         { size: { fill: true }, color: { attribute: 'color' } },
       ],
     });
@@ -142,15 +143,15 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         curved: EdgeCurvedArrowProgram,
         curvedArrow: EdgeCurvedArrowProgram,
       },
-      labelRenderedSizeThreshold: 4,
-      zoomToSizeRatioFunction: (x: number) => x,
-      itemSizesReference: 'positions',
+      labelRenderedSizeThreshold: 3,
+      // Use screen-based sizing so node sizes are in pixels
+      itemSizesReference: 'screen',
       zoomDuration: 300,
       inertiaDuration: 300,
       inertiaRatio: 0.5,
-      minCameraRatio: 0.05,
-      maxCameraRatio: 10,
-      stagePadding: 40,
+      minCameraRatio: 0.01,
+      maxCameraRatio: 20,
+      stagePadding: 50,
       // Node reducer for selection/hover highlighting
       nodeReducer: (node: string, data: any) => {
         const res = { ...data };
@@ -165,9 +166,9 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
         if (hovered && hovered !== node) {
           // Dim non-hovered nodes when a node is hovered
-          const graph = graphRef.current;
-          const isNeighbor = graph.hasNode(hovered) && (
-            graph.areNeighbors(node, hovered) || node === hovered
+          const g = graphRef.current;
+          const isNeighbor = g.hasNode(hovered) && (
+            g.areNeighbors(node, hovered) || node === hovered
           );
           if (!isNeighbor) {
             res.color = res.color + '40'; // Add alpha for dimming
@@ -190,15 +191,19 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         }
 
         if (hovered) {
-          const graph = graphRef.current;
-          const source = graph.source(edge);
-          const target = graph.target(edge);
-          const isConnected = source === hovered || target === hovered;
-          if (!isConnected) {
-            res.color = (res.color || '#000') + '20';
-            res.hidden = true;
-          } else {
-            res.forceLabel = true;
+          const g = graphRef.current;
+          try {
+            const source = g.source(edge);
+            const target = g.target(edge);
+            const isConnected = source === hovered || target === hovered;
+            if (!isConnected) {
+              res.color = (res.color || '#000') + '20';
+              res.hidden = true;
+            } else {
+              res.forceLabel = true;
+            }
+          } catch (e) {
+            // Edge might have been removed
           }
         }
 
@@ -226,7 +231,6 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     sigma.on('clickEdge', ({ edge, event }) => {
       const mouseEvent = event.original as MouseEvent;
       const attrs = graph.getEdgeAttributes(edge);
-      // Find the relationship from the network
       const relId = attrs.relId;
       if (relId) {
         selectEntity(null);
@@ -235,8 +239,6 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
           const rect = containerRef.current.getBoundingClientRect();
           setRelationshipCardPosition({ x: mouseEvent.clientX - rect.left, y: mouseEvent.clientY - rect.top });
         }
-        // We need to trigger a re-render to show the card
-        // Store the relId and look it up during render
         setSelectedRelationship({ id: relId } as Relationship);
         forceUpdate(n => n + 1);
       }
@@ -286,10 +288,6 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       const pos = sigma.viewportToGraph(e);
       graph.setNodeAttribute(dragStateRef.current.node, 'x', pos.x);
       graph.setNodeAttribute(dragStateRef.current.node, 'y', pos.y);
-      // Stop layout from overriding drag position
-      if (layoutRef.current && layoutRef.current.isRunning()) {
-        layoutRef.current.stop();
-      }
     });
 
     sigma.getMouseCaptor().on('mouseup', () => {
@@ -305,10 +303,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     });
 
     return () => {
-      if (layoutRef.current) {
-        layoutRef.current.kill();
-        layoutRef.current = null;
-      }
+      layoutRunningRef.current = false;
       sigma.kill();
       sigmaRef.current = null;
     };
@@ -362,6 +357,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     });
 
     // Add/update nodes
+    const hasNewNodes = newEntityIds.size > 0;
     visibleEntities.forEach((entity, i) => {
       const nodeColor = getNodeColor(entity);
       const borderColor = getNodeBorderColor(entity);
@@ -377,10 +373,16 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
           entityType: entity.type,
         });
       } else {
+        // Spread new nodes in a circle for better initial layout
+        const angle = (i / Math.max(visibleEntities.length, 1)) * 2 * Math.PI;
+        const radius = 5 + Math.random() * 5;
+        const x = entity.x ?? (Math.cos(angle) * radius);
+        const y = entity.y ?? (Math.sin(angle) * radius);
+
         graph.addNode(entity.id, {
-          x: entity.x ?? (Math.random() * 200 - 100),
-          y: entity.y ?? (Math.random() * 200 - 100),
-          size: isNew ? 2 : size,
+          x,
+          y,
+          size: isNew ? size * 0.3 : size,
           label: entity.name,
           color: nodeColor,
           borderColor,
@@ -391,16 +393,17 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         // Animate new nodes growing in
         if (isNew) {
           const targetSize = size;
-          const startTime = Date.now() + i * 80;
-          const duration = 500;
+          const startTime = Date.now() + i * 60;
+          const duration = 400;
           const animateGrow = () => {
             const elapsed = Date.now() - startTime;
             if (elapsed < 0) { requestAnimationFrame(animateGrow); return; }
             const progress = Math.min(elapsed / duration, 1);
+            // Ease out elastic
             const elastic = progress === 1 ? 1 :
               Math.pow(2, -10 * progress) * Math.sin((progress * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
             if (graph.hasNode(entity.id)) {
-              graph.setNodeAttribute(entity.id, 'size', 2 + (targetSize - 2) * elastic);
+              graph.setNodeAttribute(entity.id, 'size', targetSize * 0.3 + (targetSize * 0.7) * elastic);
             }
             if (progress < 1) requestAnimationFrame(animateGrow);
           };
@@ -475,42 +478,27 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       }
     });
 
-    // Run ForceAtlas2 layout if we have new nodes
-    if (graph.order > 0 && newEntityIds.size > 0) {
-      // Kill existing layout
-      if (layoutRef.current) {
-        layoutRef.current.kill();
-        layoutRef.current = null;
-      }
-
+    // Run ForceAtlas2 layout synchronously if we have new nodes
+    if (graph.order > 0 && hasNewNodes) {
       try {
         const settings = forceAtlas2.inferSettings(graph);
-        settings.gravity = Math.max(0.5, 10 / Math.max(graph.order, 1));
-        settings.scalingRatio = Math.max(1, graph.order / 5);
+        settings.gravity = 1;
+        settings.scalingRatio = 10;
         settings.barnesHutOptimize = graph.order > 50;
         settings.strongGravityMode = true;
-        settings.slowDown = 5;
+        settings.slowDown = 2;
 
-        const layout = new FA2Layout(graph, { settings });
-        layoutRef.current = layout;
-        layout.start();
-
-        // Stop after convergence
-        const stopTime = newEntityIds.size > 5 ? 3000 : 1500;
-        setTimeout(() => {
-          if (layout.isRunning()) layout.stop();
-        }, stopTime);
+        // Run synchronous layout iterations
+        const iterations = graph.order < 20 ? 200 : graph.order < 100 ? 150 : 100;
+        forceAtlas2.assign(graph, { iterations, settings });
       } catch (e) {
-        // Fallback: synchronous layout
-        try {
-          forceAtlas2.assign(graph, {
-            iterations: 100,
-            settings: forceAtlas2.inferSettings(graph),
-          });
-        } catch (e2) {
-          console.warn('Layout fallback failed:', e2);
-        }
+        console.warn('ForceAtlas2 layout failed:', e);
       }
+
+      // Reset camera to show all nodes
+      setTimeout(() => {
+        sigmaRef.current?.getCamera().animatedReset({ duration: 500 });
+      }, 100);
     }
 
     sigmaRef.current?.refresh();
@@ -523,7 +511,6 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   useEffect(() => {
     if (sigmaContainerRef.current) {
-      // Sigma renders on a canvas, we set the container background
       const canvases = sigmaContainerRef.current.querySelectorAll('canvas');
       canvases.forEach(canvas => {
         canvas.style.background = themeConfig.background;
@@ -557,8 +544,8 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       name,
       type,
       importance: 5,
-      x: Math.random() * 200 - 100,
-      y: Math.random() * 200 - 100,
+      x: Math.random() * 10 - 5,
+      y: Math.random() * 10 - 5,
     };
     dispatch({ type: 'ADD_ENTITY', payload: newEntity });
   }, [dispatch]);
