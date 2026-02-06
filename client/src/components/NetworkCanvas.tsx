@@ -11,7 +11,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import Graph from 'graphology';
 import Sigma from 'sigma';
-import { createNodeBorderProgram } from '@sigma/node-border';
+// import { createNodeBorderProgram } from '@sigma/node-border';
 import { EdgeCurvedArrowProgram } from '@sigma/edge-curve';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import { useNetwork } from '@/contexts/NetworkContext';
@@ -76,9 +76,9 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   const getNodeColor = useCallback((entity: Entity): string => {
     if (themeConfig.isLombardiStyle) {
-      // For hollow nodes: fill with background color (border program will draw the ring)
-      // For solid nodes: fill with stroke color
-      return isHollowNode(entity.type) ? themeConfig.background : themeConfig.nodeStroke;
+      // Without border program, use stroke color for all nodes
+      // Hollow nodes get a lighter version, solid nodes get full stroke
+      return themeConfig.nodeStroke;
     }
     if (themeConfig.useEntityColors) {
       return getEntityColor(entity.type);
@@ -115,12 +115,6 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const graph = new Graph({ multi: true });
     graphRef.current = graph;
 
-    const NodeBorderCustom = createNodeBorderProgram({
-      borders: [
-        { size: { value: 0.15, mode: 'relative' }, color: { attribute: 'borderColor' } },
-        { size: { fill: true }, color: { attribute: 'color' } },
-      ],
-    });
 
     const sigma = new Sigma(graph, sigmaContainerRef.current, {
       allowInvalidContainer: true,
@@ -134,11 +128,11 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       edgeLabelFont: "'Source Serif 4', Georgia, serif",
       edgeLabelSize: 10,
       edgeLabelColor: { color: '#2C2C2C' },
-      defaultNodeType: 'bordered',
+      // defaultNodeType: 'bordered',
       defaultEdgeType: 'curved',
-      nodeProgramClasses: {
-        bordered: NodeBorderCustom,
-      },
+      // nodeProgramClasses: {
+      //   bordered: NodeBorderCustom,
+      // },
       edgeProgramClasses: {
         curved: EdgeCurvedArrowProgram,
         curvedArrow: EdgeCurvedArrowProgram,
@@ -386,7 +380,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
           label: entity.name,
           color: nodeColor,
           borderColor,
-          type: 'bordered',
+          // type: 'bordered',
           entityType: entity.type,
         });
 
