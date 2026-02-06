@@ -505,10 +505,10 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   useEffect(() => {
     if (sigmaContainerRef.current) {
-      const canvases = sigmaContainerRef.current.querySelectorAll('canvas');
-      canvases.forEach(canvas => {
-        canvas.style.background = themeConfig.background;
-      });
+      // IMPORTANT: Only set background on the container div, NOT on individual canvases.
+      // Sigma.js uses stacked transparent canvases (WebGL for nodes/edges, 2D for labels).
+      // Setting opaque backgrounds on individual canvases hides the WebGL-rendered content.
+      sigmaContainerRef.current.style.background = themeConfig.background;
     }
   }, [themeConfig.background]);
 
