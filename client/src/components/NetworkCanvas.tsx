@@ -6,13 +6,21 @@
  * 
  * Supports 1000+ nodes with smooth 60fps rendering via GPU acceleration.
  * Preserves all Lombardi aesthetic features, themes, and interactions.
+ * 
+ * v9.0: Aesthetic polish pass
+ *   - Enabled @sigma/node-border for hollow/solid node distinction
+ *   - Varied edge curvatures for Lombardi-style sweeping arcs
+ *   - Paper texture overlay on canvas
+ *   - Animated ForceAtlas2 layout settling
+ *   - Improved hover/selection visual feedback
+ *   - Edge labels on hover (always, not just when toggled)
  */
 
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import Graph from 'graphology';
 import Sigma from 'sigma';
-// import { createNodeBorderProgram } from '@sigma/node-border';
-import { EdgeCurvedArrowProgram } from '@sigma/edge-curve';
+import { createNodeBorderProgram } from '@sigma/node-border';
+import EdgeCurveProgram, { EdgeCurvedArrowProgram, indexParallelEdgesIndex } from '@sigma/edge-curve';
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme, shouldUseSecondaryColor } from '@/contexts/CanvasThemeContext';
@@ -21,6 +29,52 @@ import EntityCardV2 from './EntityCardV2';
 import { RelationshipCard } from './RelationshipCard';
 import { ZoomControls, AddEntityDialog, EmptyState, isHollowNode } from './canvas';
 import { useCanvasDimensions } from './canvas/hooks/useCanvasDimensions';
+
+// ============================================
+// Custom node border program for Lombardi style
+// ============================================
+
+// Hollow nodes: visible border ring with transparent/background fill
+const HollowNodeProgram = createNodeBorderProgram({
+  borders: [
+    {
+      size: { attribute: 'borderSize', defaultValue: 0.2 },
+      color: { attribute: 'borderColor' },
+    },
+    {
+      size: { fill: true },
+      color: { attribute: 'color' },
+    },
+  ],
+});
+
+// Solid nodes: filled circle (no visible border distinction)
+const SolidNodeProgram = createNodeBorderProgram({
+  borders: [
+    {
+      size: { fill: true },
+      color: { attribute: 'color' },
+    },
+  ],
+});
+
+// Selected node: gold highlight ring
+const SelectedNodeProgram = createNodeBorderProgram({
+  borders: [
+    {
+      size: { value: 0.15 },
+      color: { attribute: 'highlightColor', defaultValue: '#B8860B' },
+    },
+    {
+      size: { value: 0.15 },
+      color: { attribute: 'borderColor', defaultValue: '#2C2C2C' },
+    },
+    {
+      size: { fill: true },
+      color: { attribute: 'color' },
+    },
+  ],
+});
 
 interface NetworkCanvasProps {
   onNarrativeEvent?: (message: string) => void;
@@ -32,6 +86,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph>(new Graph({ multi: true }));
   const layoutRunningRef = useRef(false);
+  const layoutAnimFrameRef = useRef<number | null>(null);
   const dragStateRef = useRef<{ isDragging: boolean; node: string | null }>({ isDragging: false, node: null });
 
   // Hover/selection state stored in refs for use in reducers
@@ -76,9 +131,9 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   const getNodeColor = useCallback((entity: Entity): string => {
     if (themeConfig.isLombardiStyle) {
-      // Without border program, use stroke color for all nodes
-      // Hollow nodes get a lighter version, solid nodes get full stroke
-      return themeConfig.nodeStroke;
+      // Hollow nodes: fill with background color (creates ring effect)
+      // Solid nodes: fill with stroke color
+      return isHollowNode(entity.type) ? themeConfig.background : themeConfig.nodeStroke;
     }
     if (themeConfig.useEntityColors) {
       return getEntityColor(entity.type);
@@ -96,6 +151,14 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     return themeConfig.nodeStroke;
   }, [themeConfig, getEntityColor]);
 
+  const getNodeBorderSize = useCallback((entity: Entity): number => {
+    if (themeConfig.isLombardiStyle) {
+      // Hollow nodes get a visible border ring; solid nodes get none
+      return isHollowNode(entity.type) ? 0.2 : 0;
+    }
+    return 0.12; // Subtle border for non-Lombardi themes
+  }, [themeConfig]);
+
   const getLinkColor = useCallback((rel: Relationship): string => {
     if (themeConfig.secondaryColor && rel.label) {
       if (shouldUseSecondaryColor(rel.label)) {
@@ -106,6 +169,27 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   }, [themeConfig]);
 
   // ============================================
+  // Compute varied curvatures for Lombardi-style arcs
+  // ============================================
+
+  const computeEdgeCurvature = useCallback((
+    rel: Relationship,
+    index: number,
+    total: number,
+  ): number => {
+    const baseIntensity = themeConfig.curveIntensity;
+    
+    // Create varied curvatures based on relationship index
+    // This gives each edge a unique arc height, mimicking Lombardi's hand-drawn style
+    const variation = Math.sin(index * 2.3 + 0.7) * 0.15;
+    const curvature = (baseIntensity * 0.25) + variation;
+    
+    // Alternate positive/negative curvature for visual variety
+    const sign = index % 2 === 0 ? 1 : -1;
+    return curvature * sign;
+  }, [themeConfig.curveIntensity]);
+
+  // ============================================
   // Sigma initialization (once)
   // ============================================
 
@@ -114,7 +198,6 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
     const graph = new Graph({ multi: true });
     graphRef.current = graph;
-
 
     const sigma = new Sigma(graph, sigmaContainerRef.current, {
       allowInvalidContainer: true,
@@ -128,13 +211,15 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       edgeLabelFont: "'Source Serif 4', Georgia, serif",
       edgeLabelSize: 10,
       edgeLabelColor: { color: '#2C2C2C' },
-      // defaultNodeType: 'bordered',
+      defaultNodeType: 'hollow',
       defaultEdgeType: 'curved',
-      // nodeProgramClasses: {
-      //   bordered: NodeBorderCustom,
-      // },
+      nodeProgramClasses: {
+        hollow: HollowNodeProgram,
+        solid: SolidNodeProgram,
+        selected: SelectedNodeProgram,
+      },
       edgeProgramClasses: {
-        curved: EdgeCurvedArrowProgram,
+        curved: EdgeCurveProgram,
         curvedArrow: EdgeCurvedArrowProgram,
       },
       labelRenderedSizeThreshold: 3,
@@ -153,21 +238,27 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         const selected = selectedNodeRef.current;
 
         if (node === selected) {
-          res.borderColor = '#B8860B';
+          res.highlightColor = '#B8860B';
+          res.type = 'selected';
           res.highlighted = true;
           res.zIndex = 1;
         }
 
-        if (hovered && hovered !== node) {
-          // Dim non-hovered nodes when a node is hovered
+        if (hovered) {
           const g = graphRef.current;
           const isNeighbor = g.hasNode(hovered) && (
             g.areNeighbors(node, hovered) || node === hovered
           );
-          if (!isNeighbor) {
-            res.color = res.color + '40'; // Add alpha for dimming
-            res.borderColor = (res.borderColor || '#000') + '40';
-            res.label = ''; // Hide label for dimmed nodes
+
+          if (node === hovered) {
+            // Hovered node: slight size increase
+            res.size = (data.size || 10) * 1.15;
+            res.zIndex = 2;
+          } else if (!isNeighbor) {
+            // Dim non-neighbor nodes
+            res.color = res.color + '30';
+            res.borderColor = (res.borderColor || '#000') + '30';
+            res.label = '';
           }
         }
 
@@ -191,10 +282,12 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
             const target = g.target(edge);
             const isConnected = source === hovered || target === hovered;
             if (!isConnected) {
-              res.color = (res.color || '#000') + '20';
+              res.color = (res.color || '#000') + '15';
               res.hidden = true;
             } else {
+              // Show labels on connected edges when hovering a node
               res.forceLabel = true;
+              res.size = (data.size || 1) + 0.5;
             }
           } catch (e) {
             // Edge might have been removed
@@ -284,7 +377,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       graph.setNodeAttribute(dragStateRef.current.node, 'y', pos.y);
     });
 
-    sigma.getMouseCaptor().on('mouseup', () => {
+    const mouseUpHandler = () => {
       if (dragStateRef.current.isDragging && dragStateRef.current.node) {
         const node = dragStateRef.current.node;
         if (graph.hasNode(node)) {
@@ -294,10 +387,15 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       }
       dragStateRef.current = { isDragging: false, node: null };
       sigma.getCamera().enable();
-    });
+    };
+
+    sigma.getMouseCaptor().on('mouseup', mouseUpHandler);
 
     return () => {
       layoutRunningRef.current = false;
+      if (layoutAnimFrameRef.current) {
+        cancelAnimationFrame(layoutAnimFrameRef.current);
+      }
       sigma.kill();
       sigmaRef.current = null;
     };
@@ -355,8 +453,12 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     visibleEntities.forEach((entity, i) => {
       const nodeColor = getNodeColor(entity);
       const borderColor = getNodeBorderColor(entity);
+      const borderSize = getNodeBorderSize(entity);
       const size = getNodeSize(entity);
       const isNew = newEntityIds.has(entity.id);
+      const nodeType = themeConfig.isLombardiStyle
+        ? (isHollowNode(entity.type) ? 'hollow' : 'solid')
+        : 'hollow'; // Non-Lombardi themes use hollow with colored fill
 
       if (graph.hasNode(entity.id)) {
         graph.mergeNodeAttributes(entity.id, {
@@ -364,6 +466,8 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
           label: entity.name,
           color: nodeColor,
           borderColor,
+          borderSize,
+          type: nodeType,
           entityType: entity.type,
         });
       } else {
@@ -376,28 +480,29 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         graph.addNode(entity.id, {
           x,
           y,
-          size: isNew ? size * 0.3 : size,
+          size: isNew ? size * 0.1 : size,
           label: entity.name,
           color: nodeColor,
           borderColor,
-          // type: 'bordered',
+          borderSize,
+          type: nodeType,
           entityType: entity.type,
         });
 
-        // Animate new nodes growing in
+        // Animate new nodes growing in with staggered elastic ease
         if (isNew) {
           const targetSize = size;
-          const startTime = Date.now() + i * 60;
-          const duration = 400;
+          const startTime = Date.now() + i * 80; // Stagger each node by 80ms
+          const duration = 500;
           const animateGrow = () => {
             const elapsed = Date.now() - startTime;
             if (elapsed < 0) { requestAnimationFrame(animateGrow); return; }
             const progress = Math.min(elapsed / duration, 1);
-            // Ease out elastic
+            // Ease out elastic for a bouncy, organic feel
             const elastic = progress === 1 ? 1 :
               Math.pow(2, -10 * progress) * Math.sin((progress * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
             if (graph.hasNode(entity.id)) {
-              graph.setNodeAttribute(entity.id, 'size', targetSize * 0.3 + (targetSize * 0.7) * elastic);
+              graph.setNodeAttribute(entity.id, 'size', targetSize * 0.1 + (targetSize * 0.9) * elastic);
             }
             if (progress < 1) requestAnimationFrame(animateGrow);
           };
@@ -434,12 +539,14 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       existingRelIds.add(attrs.relId);
     });
 
-    // Add/update edges
-    network.relationships.forEach(rel => {
-      if (!visibleEntityIds.has(rel.source) || !visibleEntityIds.has(rel.target)) return;
+    // Add/update edges with varied curvatures
+    const validRels = network.relationships.filter(
+      rel => visibleEntityIds.has(rel.source) && visibleEntityIds.has(rel.target)
+    );
 
+    validRels.forEach((rel, i) => {
       const edgeColor = getLinkColor(rel);
-      const curvature = themeConfig.curveIntensity * 0.3;
+      const curvature = computeEdgeCurvature(rel, i, validRels.length);
 
       if (existingRelIds.has(rel.id)) {
         // Update existing edge
@@ -472,8 +579,21 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       }
     });
 
-    // Run ForceAtlas2 layout synchronously if we have new nodes
+    // Index parallel edges for proper curvature offset
+    try {
+      indexParallelEdgesIndex(graph);
+    } catch (e) {
+      // Non-critical: parallel edge indexing may fail on some graph states
+    }
+
+    // Run animated ForceAtlas2 layout if we have new nodes
     if (graph.order > 0 && hasNewNodes) {
+      // Cancel any existing layout animation
+      if (layoutAnimFrameRef.current) {
+        cancelAnimationFrame(layoutAnimFrameRef.current);
+      }
+      layoutRunningRef.current = true;
+
       try {
         const settings = forceAtlas2.inferSettings(graph);
         settings.gravity = 1;
@@ -482,22 +602,40 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         settings.strongGravityMode = true;
         settings.slowDown = 2;
 
-        // Run synchronous layout iterations
-        const iterations = graph.order < 20 ? 200 : graph.order < 100 ? 150 : 100;
-        forceAtlas2.assign(graph, { iterations, settings });
+        // Animated layout: run iterations in batches over multiple frames
+        const totalIterations = graph.order < 20 ? 200 : graph.order < 100 ? 150 : 100;
+        const iterationsPerFrame = 5;
+        let completed = 0;
+
+        const animateLayout = () => {
+          if (!layoutRunningRef.current || completed >= totalIterations) {
+            layoutRunningRef.current = false;
+            // Final camera reset after layout settles
+            sigmaRef.current?.getCamera().animatedReset({ duration: 600 });
+            return;
+          }
+
+          const batch = Math.min(iterationsPerFrame, totalIterations - completed);
+          forceAtlas2.assign(graph, { iterations: batch, settings });
+          completed += batch;
+
+          // Gradually slow down the layout for a settling effect
+          settings.slowDown = 2 + (completed / totalIterations) * 8;
+
+          layoutAnimFrameRef.current = requestAnimationFrame(animateLayout);
+        };
+
+        layoutAnimFrameRef.current = requestAnimationFrame(animateLayout);
       } catch (e) {
         console.warn('ForceAtlas2 layout failed:', e);
+        layoutRunningRef.current = false;
       }
-
-      // Reset camera to show all nodes
-      setTimeout(() => {
-        sigmaRef.current?.getCamera().animatedReset({ duration: 500 });
-      }, 100);
     }
 
     sigmaRef.current?.refresh();
   }, [network.entities, network.relationships, themeConfig, showArrows,
-      getNodeSize, getNodeColor, getNodeBorderColor, getLinkColor, isEntityTypeVisible]);
+      getNodeSize, getNodeColor, getNodeBorderColor, getNodeBorderSize,
+      getLinkColor, computeEdgeCurvature, isEntityTypeVisible]);
 
   // ============================================
   // Update background color when theme changes
@@ -554,6 +692,7 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
 
   const selectedEntity = network.entities.find((e) => e.id === selectedEntityId);
   const showDotPattern = theme === 'colorful';
+  const showPaperTexture = themeConfig.isLombardiStyle;
 
   // ============================================
   // Render
@@ -566,6 +705,18 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
       className="relative w-full h-full overflow-hidden"
       style={{ background: themeConfig.background }}
     >
+      {/* Paper texture overlay for Lombardi themes */}
+      {showPaperTexture && (
+        <div
+          className="absolute inset-0 pointer-events-none z-[1]"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+            opacity: 0.025,
+            mixBlendMode: 'multiply',
+          }}
+        />
+      )}
+
       {/* Dot pattern background for colorful theme */}
       {showDotPattern && (
         <div
