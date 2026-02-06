@@ -48,9 +48,14 @@ const HollowNodeProgram = createNodeBorderProgram({
   ],
 });
 
-// Solid nodes: filled circle (no visible border distinction)
+// Solid nodes: filled circle with a matching-color "border" to avoid shader bug
+// (createNodeBorderProgram generates broken GLSL when only fill borders exist)
 const SolidNodeProgram = createNodeBorderProgram({
   borders: [
+    {
+      size: { value: 0.01 },
+      color: { attribute: 'color' },
+    },
     {
       size: { fill: true },
       color: { attribute: 'color' },
