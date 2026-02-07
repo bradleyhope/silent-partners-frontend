@@ -693,20 +693,41 @@ export default function InvestigativeAssistant({
         let scaffoldDescription = '';
         let expansionPaths: any[] = [];
         
-        // Process streaming response
+        // Process streaming response with stall detection
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        const STALL_TIMEOUT_MS = 45_000; // 45s stall timeout (heartbeats arrive every 5s)
+        let lastActivityTime = Date.now();
         
         while (true) {
-          const { done, value } = await reader.read();
+          // Race the read against a stall timeout
+          const readPromise = reader.read();
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            const remaining = STALL_TIMEOUT_MS - (Date.now() - lastActivityTime);
+            setTimeout(() => reject(new Error('Connection stalled — no data received for 45 seconds')), Math.max(remaining, 1000));
+          });
+          
+          let done: boolean, value: Uint8Array | undefined;
+          try {
+            ({ done, value } = await Promise.race([readPromise, timeoutPromise]) as ReadableStreamReadResult<Uint8Array>);
+          } catch (stallError) {
+            console.warn('SSE stall detected:', stallError);
+            reader.cancel();
+            throw stallError;
+          }
           if (done) break;
+          lastActivityTime = Date.now();
           
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
           buffer = lines.pop() || '';
           
           for (const line of lines) {
+            // Handle heartbeat comments from the backend keep-alive
+            if (line.startsWith(':heartbeat') || line.trim() === '') {
+              continue; // Heartbeat resets stall timer (lastActivityTime already updated above)
+            }
             if (line.startsWith('data: ')) {
               try {
                 const event = JSON.parse(line.slice(6));
@@ -1228,11 +1249,7 @@ export default function InvestigativeAssistant({
                 {pendingClaimsCount} pending
               </Button>
             )}
-            {isProcessing && (
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              </div>
-            )}
+            {/* Removed redundant header spinner — progress is shown in chat area */}
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onToggle}>
               <X className="w-4 h-4" />
             </Button>
@@ -1529,7 +1546,7 @@ export default function InvestigativeAssistant({
                           )}
                           {progressStatus.searching && (
                             <div className="text-xs text-muted-foreground italic">
-                              🔍 {progressStatus.searching}
+                              {progressStatus.searching}
                             </div>
                           )}
                         </div>
@@ -1537,7 +1554,7 @@ export default function InvestigativeAssistant({
                         <div className="space-y-1">
                           <div className="text-muted-foreground">Researching...</div>
                           <div className="text-xs text-muted-foreground italic">
-                            🔍 {progressStatus.searching}
+                            {progressStatus.searching}
                           </div>
                         </div>
                       ) : (
