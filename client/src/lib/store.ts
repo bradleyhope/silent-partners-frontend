@@ -5,12 +5,15 @@
  * Handles entities, relationships, and UI state.
  */
 
+export type ConfidenceLevel = 'verified' | 'reported' | 'hypothesis';
+
 export interface Entity {
   id: string;
   name: string;
   type: 'person' | 'corporation' | 'organization' | 'financial' | 'government' | 'event' | 'location' | 'asset' | 'unknown';
   description?: string;
   importance?: number;
+  confidence?: ConfidenceLevel; // verified | reported | hypothesis
   x?: number;
   y?: number;
   fx?: number | null;
@@ -32,6 +35,7 @@ export interface Relationship {
   endDate?: string;
   status?: 'confirmed' | 'suspected' | 'former';
   strength?: number;
+  confidence?: ConfidenceLevel; // verified | reported | hypothesis
 }
 
 export interface InvestigationContext {
@@ -102,6 +106,13 @@ export const relationshipStyles: Record<string, { strokeDasharray: string; opaci
   confirmed: { strokeDasharray: 'none', opacity: 0.8 },
   suspected: { strokeDasharray: '5,5', opacity: 0.6 },
   former: { strokeDasharray: '2,4', opacity: 0.4 },
+};
+
+// Confidence level display configuration
+export const confidenceConfig: Record<ConfidenceLevel, { label: string; color: string; bgColor: string; icon: 'CheckCircle' | 'FileText' | 'HelpCircle' }> = {
+  verified: { label: 'Verified', color: '#10B981', bgColor: '#10B98120', icon: 'CheckCircle' },
+  reported: { label: 'Reported', color: '#3B82F6', bgColor: '#3B82F620', icon: 'FileText' },
+  hypothesis: { label: 'Hypothesis', color: '#F59E0B', bgColor: '#F59E0B20', icon: 'HelpCircle' },
 };
 
 // Source type configuration for visual badges

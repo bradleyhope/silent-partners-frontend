@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useNetwork } from '@/contexts/NetworkContext';
-import { Entity, generateId, sourceTypeConfig } from '@/lib/store';
+import { Entity, ConfidenceLevel, generateId, sourceTypeConfig, confidenceConfig } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -82,6 +82,52 @@ function SourceTypeBadge({ sourceType }: { sourceType?: Entity['source_type'] })
     <span
       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
       style={{ backgroundColor: `${config.color}20`, color: config.color }}
+    >
+      {IconComponent && <IconComponent className="w-3 h-3" />}
+      {config.label}
+    </span>
+  );
+}
+
+// Confidence level badge component
+function ConfidenceLevelBadge({
+  confidence,
+  onChange
+}: {
+  confidence: ConfidenceLevel;
+  onChange?: (level: ConfidenceLevel) => void;
+}) {
+  const config = confidenceConfig[confidence];
+  const IconComponent = {
+    CheckCircle: CheckCircle,
+    FileText: FileText,
+    HelpCircle: HelpCircle,
+  }[config.icon];
+
+  const levels: ConfidenceLevel[] = ['verified', 'reported', 'hypothesis'];
+
+  if (onChange) {
+    return (
+      <button
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity"
+        style={{ backgroundColor: config.bgColor, color: config.color }}
+        onClick={() => {
+          const currentIdx = levels.indexOf(confidence);
+          const nextIdx = (currentIdx + 1) % levels.length;
+          onChange(levels[nextIdx]);
+        }}
+        title={`Click to cycle: ${levels.join(' → ')}`}
+      >
+        {IconComponent && <IconComponent className="w-3 h-3" />}
+        {config.label}
+      </button>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
+      style={{ backgroundColor: config.bgColor, color: config.color }}
     >
       {IconComponent && <IconComponent className="w-3 h-3" />}
       {config.label}
@@ -685,6 +731,16 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
           </span>
           {/* Source Type Badge */}
           <SourceTypeBadge sourceType={entity.source_type} />
+          {/* Confidence Level Badge */}
+          <ConfidenceLevelBadge
+            confidence={entity.confidence || 'reported'}
+            onChange={(level) => {
+              dispatch({
+                type: 'UPDATE_ENTITY',
+                payload: { id: entity.id, updates: { confidence: level } }
+              });
+            }}
+          />
         </div>
         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={onClose}>
           <X className="w-3.5 h-3.5" />
@@ -897,6 +953,9 @@ export default function EntityCardV2({ entity, position, onClose, onAddToNarrati
                     <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">
                       {relationship.type}
                     </span>
+                    {relationship.confidence && (
+                      <ConfidenceLevelBadge confidence={relationship.confidence} />
+                    )}
                   </div>
                 ))}
                 {connections.length > 3 && (

@@ -24,7 +24,7 @@ import EdgeCurveProgram, { EdgeCurvedArrowProgram, indexParallelEdgesIndex } fro
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import { useNetwork } from '@/contexts/NetworkContext';
 import { useCanvasTheme, shouldUseSecondaryColor } from '@/contexts/CanvasThemeContext';
-import { Entity, Relationship, generateId } from '@/lib/store';
+import { Entity, Relationship, ConfidenceLevel, generateId } from '@/lib/store';
 import EntityCardV2 from './EntityCardV2';
 import { RelationshipCard } from './RelationshipCard';
 import { ZoomControls, AddEntityDialog, EmptyState, isHollowNode } from './canvas';
@@ -135,18 +135,31 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   }, [themeConfig]);
 
   const getNodeColor = useCallback((entity: Entity): string => {
+    let color: string;
     if (themeConfig.isLombardiStyle) {
-      // Hollow nodes: fill with background color (creates ring effect)
-      // Solid nodes: fill with stroke color
-      return isHollowNode(entity.type) ? themeConfig.background : themeConfig.nodeStroke;
+      color = isHollowNode(entity.type) ? themeConfig.background : themeConfig.nodeStroke;
+    } else if (themeConfig.useEntityColors) {
+      color = getEntityColor(entity.type);
+    } else {
+      color = themeConfig.nodeFill;
     }
-    if (themeConfig.useEntityColors) {
-      return getEntityColor(entity.type);
+    // Hypothesis nodes: reduce opacity
+    if (entity.confidence === 'hypothesis') {
+      return color + '99'; // ~60% opacity
     }
-    return themeConfig.nodeFill;
+    return color;
   }, [themeConfig, getEntityColor]);
 
   const getNodeBorderColor = useCallback((entity: Entity): string => {
+    // Verified nodes get a green border to distinguish them
+    if (entity.confidence === 'verified') {
+      return '#10B981';
+    }
+    // Hypothesis nodes get a muted/dashed-feel border
+    if (entity.confidence === 'hypothesis') {
+      if (themeConfig.isLombardiStyle) return themeConfig.nodeStroke + '80';
+      return (themeConfig.useEntityColors ? getEntityColor(entity.type) : themeConfig.nodeStroke) + '80';
+    }
     if (themeConfig.isLombardiStyle) {
       return themeConfig.nodeStroke;
     }
@@ -157,20 +170,39 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
   }, [themeConfig, getEntityColor]);
 
   const getNodeBorderSize = useCallback((entity: Entity): number => {
+    const confidence = entity.confidence || 'reported';
     if (themeConfig.isLombardiStyle) {
-      // Hollow nodes get a visible border ring; solid nodes get none
-      return isHollowNode(entity.type) ? 0.2 : 0;
+      const base = isHollowNode(entity.type) ? 0.2 : 0;
+      // Verified: thicker border; hypothesis: thinner
+      if (confidence === 'verified') return base * 1.5;
+      if (confidence === 'hypothesis') return base * 0.7;
+      return base;
     }
-    return 0.12; // Subtle border for non-Lombardi themes
+    // Non-Lombardi: verified gets thicker, hypothesis gets thinner
+    if (confidence === 'verified') return 0.18;
+    if (confidence === 'hypothesis') return 0.08;
+    return 0.12;
   }, [themeConfig]);
 
   const getLinkColor = useCallback((rel: Relationship): string => {
+    let color: string;
     if (themeConfig.secondaryColor && rel.label) {
       if (shouldUseSecondaryColor(rel.label)) {
-        return themeConfig.secondaryColor;
+        color = themeConfig.secondaryColor;
+      } else {
+        color = themeConfig.linkStroke;
       }
+    } else {
+      color = themeConfig.linkStroke;
     }
-    return themeConfig.linkStroke;
+    // Confidence-based opacity: hypothesis edges are semi-transparent
+    if (rel.confidence === 'hypothesis') {
+      return color + '66'; // ~40% opacity
+    }
+    if (rel.confidence === 'verified') {
+      return color; // Full opacity
+    }
+    return color;
   }, [themeConfig]);
 
   // ============================================
@@ -434,13 +466,17 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     const graph = graphRef.current;
     if (!graph || !sigmaRef.current) return;
 
-    // Detect new entities
+    // Detect new entities and relationships
     const currentEntityIds = new Set(network.entities.map(e => e.id));
     const newEntityIds = new Set<string>();
     network.entities.forEach(e => {
       if (!prevEntitiesRef.current.has(e.id)) newEntityIds.add(e.id);
     });
     prevEntitiesRef.current = currentEntityIds;
+
+    const currentRelIds = new Set(network.relationships.map(r => r.id));
+    // prevRelationshipsRef is read during edge creation for entrance animations
+    // Update it after edge creation below
 
     // Filter by visible entity types
     const visibleEntities = network.entities.filter(e => isEntityTypeVisible(e.type));
@@ -482,36 +518,55 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
         const x = entity.x ?? (Math.cos(angle) * radius);
         const y = entity.y ?? (Math.sin(angle) * radius);
 
+        // Start new nodes invisible (size 0, transparent colors) for entrance animation
+        const startColor = isNew ? (nodeColor + '00') : nodeColor;
+        const startBorderColor = isNew ? (borderColor + '00') : borderColor;
+
         graph.addNode(entity.id, {
           x,
           y,
-          size: isNew ? size * 0.1 : size,
-          label: entity.name,
-          color: nodeColor,
-          borderColor,
+          size: isNew ? 0 : size,
+          label: isNew ? '' : entity.name,
+          color: startColor,
+          borderColor: startBorderColor,
           borderSize,
           type: nodeType,
           entityType: entity.type,
         });
 
-        // Animate new nodes growing in with staggered elastic ease
+        // Animate new nodes: grow from 0, fade color from transparent to target
         if (isNew) {
           const targetSize = size;
+          const targetColor = nodeColor;
+          const targetBorderColor = borderColor;
           const startTime = Date.now() + i * 80; // Stagger each node by 80ms
           const duration = 500;
-          const animateGrow = () => {
+          const animateEntrance = () => {
             const elapsed = Date.now() - startTime;
-            if (elapsed < 0) { requestAnimationFrame(animateGrow); return; }
+            if (elapsed < 0) { requestAnimationFrame(animateEntrance); return; }
             const progress = Math.min(elapsed / duration, 1);
             // Ease out elastic for a bouncy, organic feel
             const elastic = progress === 1 ? 1 :
               Math.pow(2, -10 * progress) * Math.sin((progress * 10 - 0.75) * (2 * Math.PI / 3)) + 1;
+            // Smooth ease-out for color fade (no elastic bounce for colors)
+            const colorProgress = 1 - Math.pow(1 - progress, 3);
+            const alpha = Math.round(colorProgress * 255).toString(16).padStart(2, '0');
+
             if (graph.hasNode(entity.id)) {
-              graph.setNodeAttribute(entity.id, 'size', targetSize * 0.1 + (targetSize * 0.9) * elastic);
+              graph.setNodeAttribute(entity.id, 'size', targetSize * elastic);
+              // Fade color from transparent to target
+              graph.setNodeAttribute(entity.id, 'color',
+                progress >= 1 ? targetColor : targetColor + alpha);
+              graph.setNodeAttribute(entity.id, 'borderColor',
+                progress >= 1 ? targetBorderColor : targetBorderColor + alpha);
+              // Show label once node is visible enough
+              if (progress > 0.3) {
+                graph.setNodeAttribute(entity.id, 'label', entity.name);
+              }
             }
-            if (progress < 1) requestAnimationFrame(animateGrow);
+            if (progress < 1) requestAnimationFrame(animateEntrance);
           };
-          requestAnimationFrame(animateGrow);
+          requestAnimationFrame(animateEntrance);
         }
       }
     });
@@ -552,13 +607,19 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
     validRels.forEach((rel, i) => {
       const edgeColor = getLinkColor(rel);
       const curvature = computeEdgeCurvature(rel, i, validRels.length);
+      // Confidence-based edge width: verified thicker, hypothesis thinner
+      const edgeWidth = rel.confidence === 'verified'
+        ? themeConfig.linkWidth * 1.5
+        : rel.confidence === 'hypothesis'
+          ? themeConfig.linkWidth * 0.6
+          : themeConfig.linkWidth;
 
       if (existingRelIds.has(rel.id)) {
         // Update existing edge
         graph.forEachEdge((edge, attrs) => {
           if (attrs.relId === rel.id) {
             graph.mergeEdgeAttributes(edge, {
-              size: themeConfig.linkWidth,
+              size: edgeWidth,
               color: edgeColor,
               label: rel.label || rel.type || '',
               curvature,
@@ -566,23 +627,57 @@ export default function NetworkCanvas({ onNarrativeEvent }: NetworkCanvasProps =
           }
         });
       } else {
-        // Add new edge
+        // Add new edge with entrance animation (fade in from transparent)
+        const isNewEdge = !prevRelationshipsRef.current.has(rel.id);
+        const startEdgeColor = isNewEdge ? (edgeColor + '00') : edgeColor;
         try {
-          graph.addEdgeWithKey(`edge-${rel.id}`, rel.source, rel.target, {
-            size: themeConfig.linkWidth,
-            color: edgeColor,
-            label: rel.label || rel.type || '',
+          const edgeKey = `edge-${rel.id}`;
+          graph.addEdgeWithKey(edgeKey, rel.source, rel.target, {
+            size: edgeWidth,
+            color: startEdgeColor,
+            label: isNewEdge ? '' : (rel.label || rel.type || ''),
             type: showArrows ? 'curvedArrow' : 'curved',
             curvature,
             relId: rel.id,
             relStatus: rel.status,
           });
+
+          // Animate edge color fade-in
+          if (isNewEdge) {
+            const targetEdgeColor = edgeColor;
+            const edgeLabel = rel.label || rel.type || '';
+            const edgeStartTime = Date.now() + i * 40;
+            const edgeDuration = 400;
+            const animateEdge = () => {
+              const elapsed = Date.now() - edgeStartTime;
+              if (elapsed < 0) { requestAnimationFrame(animateEdge); return; }
+              const progress = Math.min(elapsed / edgeDuration, 1);
+              const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+              const alpha = Math.round(eased * 255).toString(16).padStart(2, '0');
+              try {
+                if (graph.hasEdge(edgeKey)) {
+                  graph.setEdgeAttribute(edgeKey, 'color',
+                    progress >= 1 ? targetEdgeColor : targetEdgeColor + alpha);
+                  if (progress > 0.5) {
+                    graph.setEdgeAttribute(edgeKey, 'label', edgeLabel);
+                  }
+                }
+              } catch {
+                // Edge may have been removed during animation
+              }
+              if (progress < 1) requestAnimationFrame(animateEdge);
+            };
+            requestAnimationFrame(animateEdge);
+          }
         } catch (e) {
           // Silently handle duplicate edge keys
           console.warn('Edge add skipped:', (e as Error).message);
         }
       }
     });
+
+    // Update prevRelationshipsRef after edge creation
+    prevRelationshipsRef.current = currentRelIds;
 
     // Index parallel edges for proper curvature offset
     try {

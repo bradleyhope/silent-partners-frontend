@@ -269,6 +269,20 @@ class ApiClient {
     });
   }
 
+  // Auto-save: upsert graph data (create or update)
+  async autoSaveGraph(network: {
+    id?: number | string;
+    title: string;
+    description: string;
+    entities: Array<{ id: string; name: string; type: string; description?: string; importance?: number; x?: number; y?: number; confidence?: string }>;
+    relationships: Array<{ id: string; source: string; target: string; type?: string; label?: string; confidence?: string }>;
+  }): Promise<{ id: number; saved: boolean }> {
+    return this.request('/v2/agent-v2/graph/save', {
+      method: 'POST',
+      body: JSON.stringify(network),
+    });
+  }
+
   async listGraphs(): Promise<{ graphs: Array<{ id: number; title: string; description: string; created_at: string }> }> {
     return this.request('/graphs');
   }

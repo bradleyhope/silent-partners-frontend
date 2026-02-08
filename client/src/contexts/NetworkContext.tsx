@@ -5,16 +5,17 @@
  * Includes smart deduplication and entity merging.
  */
 
-import React, { createContext, useContext, useReducer, useCallback, ReactNode } from 'react';
-import { 
-  Network, 
-  Entity, 
-  Relationship, 
-  NetworkState, 
-  initialState, 
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef, ReactNode } from 'react';
+import {
+  Network,
+  Entity,
+  Relationship,
+  NetworkState,
+  initialState,
   initialNetwork,
-  generateId 
+  generateId
 } from '@/lib/store';
+import api from '@/lib/api';
 
 import { InvestigationContext } from '@/lib/store';
 
@@ -645,6 +646,78 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   const findMatchingEntityFn = useCallback((entity: Entity) => {
     return findMatchingEntity(state.network.entities, entity);
   }, [state.network.entities]);
+
+  // ============================================
+  // Auto-save: debounced save when graph changes
+  // ============================================
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedHashRef = useRef<string>('');
+
+  useEffect(() => {
+    // Skip auto-save if graph is empty or still loading
+    if (state.network.entities.length === 0 || state.isLoading) return;
+
+    // Simple hash to detect actual changes
+    const hash = JSON.stringify({
+      e: state.network.entities.map(e => e.id).sort(),
+      r: state.network.relationships.map(r => r.id).sort(),
+      t: state.network.title,
+    });
+    if (hash === lastSavedHashRef.current) return;
+
+    // Clear previous timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    // Debounce: save 2 seconds after the last change
+    autoSaveTimerRef.current = setTimeout(async () => {
+      try {
+        const result = await api.autoSaveGraph({
+          id: state.network.id ? (typeof state.network.id === 'string' ? parseInt(state.network.id, 10) : state.network.id) : undefined,
+          title: state.network.title || 'Untitled Network',
+          description: state.network.description || '',
+          entities: state.network.entities.map(e => ({
+            id: e.id,
+            name: e.name,
+            type: e.type,
+            description: e.description,
+            importance: e.importance,
+            x: e.x,
+            y: e.y,
+            confidence: (e as any).confidence,
+          })),
+          relationships: state.network.relationships.map(r => ({
+            id: r.id,
+            source: r.source,
+            target: r.target,
+            type: r.type,
+            label: r.label,
+            confidence: (r as any).confidence,
+          })),
+        });
+        lastSavedHashRef.current = hash;
+        // If the backend assigned a new ID, update the network
+        if (result.id && !state.network.id) {
+          dispatch({ type: 'UPDATE_NETWORK', payload: { id: result.id } });
+        }
+        if (import.meta.env.DEV) {
+          console.log('Auto-saved graph:', result.id);
+        }
+      } catch (e) {
+        // Auto-save failures are non-critical; log but don't disrupt the user
+        if (import.meta.env.DEV) {
+          console.warn('Auto-save failed:', e);
+        }
+      }
+    }, 2000);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [state.network.entities, state.network.relationships, state.network.title, state.network.id, state.isLoading]);
 
   const value: NetworkContextValue = {
     ...state,
